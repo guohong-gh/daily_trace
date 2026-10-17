@@ -10,15 +10,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -44,6 +51,7 @@ import com.gh.daily_trace.data.model.FilterMode
 import com.gh.daily_trace.data.model.FilterView
 import com.gh.daily_trace.data.model.Group
 import com.gh.daily_trace.di.Container
+import com.gh.daily_trace.ui.common.EmptyState
 
 @Composable
 fun FilterRoute(container: Container, onBack: () -> Unit, onApply: (Long) -> Unit) {
@@ -64,7 +72,9 @@ fun FilterScreen(viewModel: FilterViewModel, onBack: () -> Unit, onApply: (Long)
             TopAppBar(
                 title = { Text(if (editing == null) "筛选视图" else "编辑筛选视图") },
                 navigationIcon = {
-                    TextButton(onClick = { if (editing != null) editing = null else onBack() }) { Text("返回") }
+                    IconButton(onClick = { if (editing != null) editing = null else onBack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
                 },
             )
         },
@@ -82,13 +92,21 @@ fun FilterScreen(viewModel: FilterViewModel, onBack: () -> Unit, onApply: (Long)
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item(key = "new") {
-                    FilledTonalButton(onClick = { editing = FilterView(name = "") }) { Text("新建筛选视图") }
+                    Button(
+                        onClick = { editing = FilterView(name = "") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("新建筛选视图")
+                    }
                 }
                 if (state.views.isEmpty()) {
                     item(key = "empty") {
-                        Text(
-                            "还没有保存的筛选视图。新建后可在今日页「更多 → 筛选视图」中应用。",
-                            style = MaterialTheme.typography.bodySmall,
+                        EmptyState(
+                            emoji = "🗂️",
+                            title = "还没有筛选视图",
+                            description = "把常用的一组选项保存为视图，今日页「更多 → 筛选视图」中一键应用",
                         )
                     }
                 }
@@ -130,13 +148,25 @@ private fun ViewCard(
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
-            Text(view.name.ifBlank { "未命名视图" }, style = MaterialTheme.typography.titleSmall)
+            Text(view.name.ifBlank { "未命名视图" }, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
-            Text(summary, style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onDelete) { Text("删除") }
-                TextButton(onClick = onEdit) { Text("编辑") }
+            Text(
+                summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                TextButton(onClick = onDelete) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+                Spacer(Modifier.width(4.dp))
+                FilledTonalButton(onClick = onEdit) { Text("编辑") }
+                Spacer(Modifier.width(8.dp))
                 Button(onClick = onApply) { Text("应用") }
             }
         }
@@ -169,13 +199,20 @@ private fun FilterEditor(
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("视图名称") },
+                placeholder = { Text("例如：晨间习惯") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
 
         item(key = "mode") {
-            Text("范围", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "范围",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = mode == FilterMode.ALL,
@@ -192,7 +229,13 @@ private fun FilterEditor(
 
         if (mode == FilterMode.SELECTED) {
             item(key = "items") {
-                Text("按选项（可多选）", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    "按选项（可多选）",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Spacer(Modifier.height(4.dp))
                 Column {
                     items.forEach { item ->
                         CheckRow(
@@ -203,11 +246,23 @@ private fun FilterEditor(
                             },
                         )
                     }
-                    if (items.isEmpty()) Text("暂无选项", style = MaterialTheme.typography.bodySmall)
+                    if (items.isEmpty()) {
+                        Text(
+                            "暂无选项",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             item(key = "groups") {
-                Text("按分组（可多选）", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    "按分组（可多选）",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Spacer(Modifier.height(4.dp))
                 Column {
                     groups.forEach { group ->
                         CheckRow(
@@ -218,11 +273,23 @@ private fun FilterEditor(
                             },
                         )
                     }
-                    if (groups.isEmpty()) Text("暂无分组", style = MaterialTheme.typography.bodySmall)
+                    if (groups.isEmpty()) {
+                        Text(
+                            "暂无分组",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             item(key = "logic") {
-                Text("选项与分组的关系", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    "选项与分组的关系",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = logic == FilterLogic.ANY,
@@ -239,7 +306,13 @@ private fun FilterEditor(
         }
 
         item(key = "day") {
-            Text("日期状态", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "日期状态",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = dayFilter == DayFilter.ALL,
@@ -260,10 +333,10 @@ private fun FilterEditor(
         }
 
         item(key = "actions") {
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onCancel) { Text("取消") }
-                Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("取消") }
+                Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = {
                         onSave(
@@ -278,7 +351,8 @@ private fun FilterEditor(
                         )
                     },
                     enabled = name.isNotBlank(),
-                ) { Text("保存") }
+                    modifier = Modifier.weight(1f),
+                ) { Text("保存视图") }
             }
         }
     }
@@ -288,10 +362,10 @@ private fun FilterEditor(
 private fun CheckRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().height(40.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
     ) {
         Checkbox(checked = checked, onCheckedChange = onCheckedChange)
-        Text(label)
+        Text(label, style = MaterialTheme.typography.bodyLarge)
     }
 }
 

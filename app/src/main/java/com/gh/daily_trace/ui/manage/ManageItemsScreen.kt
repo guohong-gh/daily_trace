@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.gh.daily_trace.ui.manage
 
 import androidx.compose.foundation.clickable
@@ -14,9 +16,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -30,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -38,6 +47,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckType
 import com.gh.daily_trace.di.Container
+import com.gh.daily_trace.ui.common.EmptyState
+import com.gh.daily_trace.ui.common.ItemBadge
 
 @Composable
 fun ManageItemsRoute(container: Container, onBack: () -> Unit, onEdit: (Long) -> Unit) {
@@ -49,7 +60,6 @@ fun ManageItemsRoute(container: Container, onBack: () -> Unit, onEdit: (Long) ->
     ManageItemsScreen(viewModel = viewModel, onBack = onBack, onEdit = onEdit)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManageItemsScreen(viewModel: ManageItemsViewModel, onBack: () -> Unit, onEdit: (Long) -> Unit) {
     val sections by viewModel.uiState.collectAsState()
@@ -60,8 +70,16 @@ fun ManageItemsScreen(viewModel: ManageItemsViewModel, onBack: () -> Unit, onEdi
         topBar = {
             TopAppBar(
                 title = { Text("选项管理") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
-                actions = { TextButton(onClick = { onEdit(0L) }) { Text("新建") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { onEdit(0L) }) {
+                        Icon(Icons.Filled.Add, contentDescription = "新建选项")
+                    }
+                },
             )
         },
     ) { padding ->
@@ -70,7 +88,13 @@ fun ManageItemsScreen(viewModel: ManageItemsViewModel, onBack: () -> Unit, onEdi
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("还没有任何选项，点右上角「新建」")
+                EmptyState(
+                    emoji = "🧩",
+                    title = "还没有打卡选项",
+                    description = "创建第一个选项，开始记录每天的小坚持",
+                    actionLabel = "新建选项",
+                    onAction = { onEdit(0L) },
+                )
             }
         } else {
             LazyColumn(
@@ -126,6 +150,7 @@ private fun LazyListScope.manageSection(
         Text(
             "$title（${rows.size}）",
             style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
         )
     }
@@ -141,18 +166,32 @@ private fun ManageItemRow(row: ManageRow, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
-            Text(row.item.icon.ifBlank { "•" }, fontSize = 20.sp)
-            Spacer(Modifier.width(10.dp))
+            ItemBadge(
+                icon = row.item.icon,
+                color = row.item.color,
+                size = 36.dp,
+                iconSize = 18.sp,
+            )
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(row.item.name, style = MaterialTheme.typography.titleMedium)
                 val subtitle = buildString {
                     append(typeLabel(row.item.type))
                     if (row.item.unit.isNotBlank()) append(" · ${row.item.unit}")
                     row.groupName?.let { append(" · $it") }
+                    if (row.item.deletedAt != null) append(" · 回收站")
                 }
-                Text(subtitle, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Text("操作", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+            Icon(
+                Icons.Filled.MoreVert,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -167,25 +206,37 @@ private fun ItemActionsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(item.name) },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ItemBadge(icon = item.icon, color = item.color, size = 32.dp, iconSize = 16.sp)
+                Spacer(Modifier.width(10.dp))
+                Text(item.name)
+            }
+        },
         text = {
             Column {
                 if (item.deletedAt != null) {
-                    ActionText("恢复") { viewModel.restore(item); onDismiss() }
-                    ActionText("彻底删除", danger = true) { onPurgeRequest(item); onDismiss() }
+                    DialogActionRow("♻️", "恢复") { viewModel.restore(item); onDismiss() }
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    DialogActionRow("❗", "彻底删除", danger = true) { onPurgeRequest(item); onDismiss() }
                 } else {
-                    ActionText("编辑") { onEdit(item.id); onDismiss() }
+                    DialogActionRow("✏️", "编辑") { onEdit(item.id); onDismiss() }
                     if (!item.archived) {
-                        ActionText("上移") { viewModel.moveUp(item); onDismiss() }
-                        ActionText("下移") { viewModel.moveDown(item); onDismiss() }
+                        DialogActionRow("⬆️", "上移") { viewModel.moveUp(item); onDismiss() }
+                        DialogActionRow("⬇️", "下移") { viewModel.moveDown(item); onDismiss() }
                     }
-                    ActionText(if (item.enabled) "停用" else "启用") {
-                        viewModel.setEnabled(item, !item.enabled); onDismiss()
+                    DialogActionRow(
+                        if (item.enabled) "⏸️" else "▶️",
+                        if (item.enabled) "停用" else "启用",
+                    ) { viewModel.setEnabled(item, !item.enabled); onDismiss() }
+                    DialogActionRow(
+                        if (item.archived) "↩️" else "📦",
+                        if (item.archived) "取消归档" else "归档",
+                    ) { viewModel.setArchived(item, !item.archived); onDismiss() }
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    DialogActionRow("🗑️", "移入回收站", danger = true) {
+                        viewModel.moveToTrash(item); onDismiss()
                     }
-                    ActionText(if (item.archived) "取消归档" else "归档") {
-                        viewModel.setArchived(item, !item.archived); onDismiss()
-                    }
-                    ActionText("移入回收站", danger = true) { viewModel.moveToTrash(item); onDismiss() }
                 }
             }
         },
@@ -194,12 +245,26 @@ private fun ItemActionsDialog(
 }
 
 @Composable
-private fun ActionText(label: String, danger: Boolean = false, onClick: () -> Unit) {
-    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+private fun DialogActionRow(
+    emoji: String,
+    label: String,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 12.dp),
+    ) {
+        Text(emoji, fontSize = 16.sp)
+        Spacer(Modifier.width(12.dp))
         Text(
             label,
-            color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            modifier = Modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
         )
     }
 }

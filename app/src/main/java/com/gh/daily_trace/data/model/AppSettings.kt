@@ -11,8 +11,8 @@ import androidx.room.PrimaryKey
 data class AppSettings(
     @PrimaryKey val id: Int = 1,
     val theme: ThemeMode = ThemeMode.SYSTEM,
-    /** 是否启用 Material You 动态取色 */
-    val dynamicColor: Boolean = true,
+    /** 是否启用 Material You 动态取色（默认关闭，保持品牌色板一致性） */
+    val dynamicColor: Boolean = false,
     /** 周起始日：1=周一 … 7=周日 */
     val weekStart: Int = 1,
     /** 日起始小时：凌晨 4 点前仍算前一天 */

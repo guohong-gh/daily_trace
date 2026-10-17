@@ -47,8 +47,15 @@ app/src/test/                单元测试（Robolectric 内存库 + 纯逻辑单
 - 统计：期望日模型（DAILY/无规则=每天；DAYS_OF_WEEK=所选周几；TIMES_PER_MONTH=月度配额进度）；跳过日（SKIPPED 或 allowSkip+skipDates）不计期望也不中断连续；今天未打卡宽限不中断；PARTIAL 计完成受 `partialCountsAsDone`；所有统计按 itemId 隔离。
 - 备份：JSON v1 全表快照（选项含回收站；枚举存 name；可空字段存 null）；导入为单事务全量覆盖，先校验后写入（非法数据不动库），成功后自动重排提醒；本机自动备份在应用启动与退后台时按间隔检查，存 `files/backups/`（保留最近 5 份），设置页可导出到 SAF 自选位置或手动立即备份。
 
+## 界面设计（UI v2，2026-10-17）
+
+- 品牌主题：自建 Material 3 明暗色板（主色「生长绿」，辅助琥珀），完整字阶与形状层级；默认关闭动态取色，设置中可开启 Material You（Android 12+）。
+- 通用组件集中在 `ui/common/AppUi.kt`：区块卡片、空态/加载态、徽章、状态胶囊、开关行；页面统一 16dp 边距、卡片列表与 Snackbar 操作反馈。
+- 无障碍：图标按钮均带 contentDescription；可点击行 ≥48dp；正文对比度 ≥4.5:1；颜色仅作辅助（选项 emoji 双重编码）。
+- 截图：`docs/screenshots/`（`01–10` 为旧版；`ui2-01`–`ui2-20` 为 UI v2 前后对比素材）。
+
 ## 当前状态与计划
 
 见 `docs/status-and-plan.md`（含已确认事实、假设、待确认问题、阶段计划与决策记录）。
 
-注：工作区当前**未初始化 git**（用户决定，暂缓）。
+注：git 已初始化（分支 `main`）并推送至 Gitee：`https://gitee.com/itaita/daily_trace_app`（2026-10-17）。

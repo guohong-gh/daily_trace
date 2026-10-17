@@ -15,6 +15,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -25,6 +32,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -57,53 +65,69 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
         topBar = {
             TopAppBar(
                 title = { Text("日历") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
-                actions = { TextButton(onClick = { viewModel.backToToday() }) { Text("今天") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { viewModel.backToToday() }) { Text("今天") }
+                },
             )
         },
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 8.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 16.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                TextButton(onClick = { viewModel.prevMonth() }) { Text("上月") }
-                Text(
-                    state.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { viewModel.nextMonth() }) { Text("下月") }
-            }
-            Row(Modifier.fillMaxWidth()) {
-                state.weekHeaders.forEach { header ->
-                    Text(
-                        header,
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            state.rows.forEach { week ->
-                Row(Modifier.fillMaxWidth()) {
-                    week.forEach { date ->
-                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                            if (date != null) {
-                                DayCell(date = date, state = state, onOpenDate = onOpenDate)
-                            } else {
-                                Spacer(Modifier.height(52.dp))
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        IconButton(onClick = { viewModel.prevMonth() }) {
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上个月")
+                        }
+                        Text(
+                            state.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { viewModel.nextMonth() }) {
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下个月")
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth()) {
+                        state.weekHeaders.forEach { header ->
+                            Text(
+                                header,
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    state.rows.forEach { week ->
+                        Row(Modifier.fillMaxWidth()) {
+                            week.forEach { date ->
+                                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                    if (date != null) {
+                                        DayCell(date = date, state = state, onOpenDate = onOpenDate)
+                                    } else {
+                                        Spacer(Modifier.height(48.dp))
+                                    }
+                                }
                             }
                         }
                     }
+                    Spacer(Modifier.height(4.dp))
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 LegendDot(MaterialTheme.colorScheme.primary, "有打卡")
                 LegendDot(MaterialTheme.colorScheme.tertiary, "有备注")
             }
@@ -120,7 +144,8 @@ private fun DayCell(date: Long, state: CalendarUiState, onOpenDate: (Long) -> Un
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(48.dp)
+            .clip(MaterialTheme.shapes.small)
             .clickable { onOpenDate(date) }
             .padding(vertical = 4.dp),
     ) {
@@ -130,7 +155,7 @@ private fun DayCell(date: Long, state: CalendarUiState, onOpenDate: (Long) -> Un
                 .size(28.dp)
                 .then(
                     if (isToday) {
-                        Modifier.background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                        Modifier.background(MaterialTheme.colorScheme.primary, CircleShape)
                     } else {
                         Modifier
                     }
@@ -139,6 +164,11 @@ private fun DayCell(date: Long, state: CalendarUiState, onOpenDate: (Long) -> Un
             Text(
                 LocalDate.ofEpochDay(date).dayOfMonth.toString(),
                 style = MaterialTheme.typography.bodyMedium,
+                color = if (isToday) {
+                    MaterialTheme.colorScheme.onPrimary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
                 fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
             )
         }
@@ -157,8 +187,12 @@ private fun Dot(color: Color) {
 
 @Composable
 private fun LegendDot(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Dot(color)
-        Text(label, style = MaterialTheme.typography.bodySmall)
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

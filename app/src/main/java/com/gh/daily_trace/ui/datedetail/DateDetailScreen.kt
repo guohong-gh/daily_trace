@@ -4,6 +4,7 @@ package com.gh.daily_trace.ui.datedetail
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,18 +13,27 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -32,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,9 +56,15 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
 import com.gh.daily_trace.di.Container
+import com.gh.daily_trace.ui.common.EmptyState
+import com.gh.daily_trace.ui.common.ItemBadge
 import com.gh.daily_trace.ui.common.RecordDialog
+import com.gh.daily_trace.ui.common.SectionCard
+import com.gh.daily_trace.ui.common.SectionTitle
+import com.gh.daily_trace.ui.common.StatusPill
 import com.gh.daily_trace.ui.common.formatValue
 import com.gh.daily_trace.ui.common.timeFormatter
+import kotlinx.coroutines.launch
 import java.time.Instant
 
 @Composable
@@ -67,6 +84,8 @@ fun DateDetailScreen(viewModel: DateDetailViewModel, onBack: () -> Unit) {
     var noteDraft by rememberSaveable(state.date) { mutableStateOf<String?>(null) }
     var pickerOpen by rememberSaveable { mutableStateOf(false) }
     var recordDialogItem by remember { mutableStateOf<CheckItem?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     LifecycleResumeEffect(Unit) {
         viewModel.refreshToday()
@@ -77,9 +96,14 @@ fun DateDetailScreen(viewModel: DateDetailViewModel, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text(state.title) },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -99,33 +123,52 @@ fun DateDetailScreen(viewModel: DateDetailViewModel, onBack: () -> Unit) {
                     onSave = {
                         noteDraft?.let { viewModel.saveDayNote(it) }
                         noteDraft = null
+                        scope.launch { snackbarHostState.showSnackbar("备注已保存") }
                     },
                 )
             }
 
             item(key = "records-header") {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "打卡记录（${state.records.size}）",
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (state.canCheckIn) {
-                        FilledTonalButton(onClick = { pickerOpen = true }) { Text(state.checkInLabel) }
+                Column {
+                    SectionTitle("打卡记录（${state.records.size}）") {
+                        if (state.canCheckIn) {
+                            FilledTonalButton(onClick = { pickerOpen = true }) {
+                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(state.checkInLabel)
+                            }
+                        }
                     }
-                }
-                state.checkInHint?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall)
+                    state.checkInHint?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
             if (state.records.isEmpty()) {
                 item(key = "no-records") {
-                    Text("当天暂无记录", style = MaterialTheme.typography.bodySmall)
+                    Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                        EmptyState(
+                            emoji = "🗒️",
+                            title = "当天暂无打卡记录",
+                            description = if (state.canCheckIn) "点上方「${state.checkInLabel}」补记一笔" else null,
+                        )
+                    }
                 }
             }
             items(state.records, key = { it.id }) { record ->
-                RecordCard(record = record, onDelete = { viewModel.deleteRecord(record.id) })
+                RecordCard(
+                    record = record,
+                    onDelete = {
+                        viewModel.deleteRecord(record.id)
+                        scope.launch { snackbarHostState.showSnackbar("已删除该条记录") }
+                    },
+                )
             }
         }
     }
@@ -150,9 +193,9 @@ fun DateDetailScreen(viewModel: DateDetailViewModel, onBack: () -> Unit) {
                                 }
                                 .padding(vertical = 10.dp),
                         ) {
-                            Text(item.icon.ifBlank { "•" }, fontSize = 18.sp)
-                            Spacer(Modifier.width(8.dp))
-                            Text(item.name)
+                            ItemBadge(icon = item.icon, color = item.color, size = 32.dp, iconSize = 16.sp)
+                            Spacer(Modifier.width(12.dp))
+                            Text(item.name, style = MaterialTheme.typography.bodyLarge)
                         }
                     }
                 }
@@ -168,6 +211,7 @@ fun DateDetailScreen(viewModel: DateDetailViewModel, onBack: () -> Unit) {
             onConfirm = { value, note ->
                 viewModel.addRecord(item, value, note)
                 recordDialogItem = null
+                scope.launch { snackbarHostState.showSnackbar("已记录") }
             },
         )
     }
@@ -180,28 +224,23 @@ private fun DayNoteEditor(
     onDraftChange: (String) -> Unit,
     onSave: () -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Text("当天备注", style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = draft ?: saved,
-                onValueChange = onDraftChange,
-                placeholder = { Text("记录这一天…") },
-                minLines = 2,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                val clearEnabled = (draft ?: saved).isNotEmpty()
-                val saveEnabled = draft != null && draft != saved
-                TextButton(
-                    onClick = { onDraftChange(""); onSave() },
-                    enabled = clearEnabled,
-                ) { Text("清除") }
-                Spacer(Modifier.width(4.dp))
-                Button(onClick = onSave, enabled = saveEnabled) { Text("保存备注") }
-            }
+    SectionCard(title = "当天备注") {
+        OutlinedTextField(
+            value = draft ?: saved,
+            onValueChange = onDraftChange,
+            placeholder = { Text("记录这一天的想法…") },
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            val clearEnabled = (draft ?: saved).isNotEmpty()
+            val saveEnabled = draft != null && draft != saved
+            TextButton(
+                onClick = { onDraftChange(""); onSave() },
+                enabled = clearEnabled,
+            ) { Text("清除") }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = onSave, enabled = saveEnabled) { Text("保存备注") }
         }
     }
 }
@@ -209,30 +248,48 @@ private fun DayNoteEditor(
 @Composable
 private fun RecordCard(record: CheckRecord, onDelete: () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(record.itemIconSnapshot.ifBlank { "•" }, fontSize = 18.sp)
-                Spacer(Modifier.width(8.dp))
+                ItemBadge(
+                    icon = record.itemIconSnapshot,
+                    color = record.itemColorSnapshot,
+                    size = 32.dp,
+                    iconSize = 16.sp,
+                )
+                Spacer(Modifier.width(12.dp))
                 Text(
                     record.itemNameSnapshot,
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )
                 if (record.isBackfill) {
-                    Text("补卡", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                    StatusPill("补卡")
+                    Spacer(Modifier.width(4.dp))
                 }
-                TextButton(onClick = onDelete) { Text("删除") }
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "删除这条记录",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 44.dp)) {
                 Text(
                     timeFormatter.format(Instant.ofEpochMilli(record.createdAt)),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 val valueText = record.value?.let { formatValue(it) + record.unit }
                 val text = listOfNotNull(valueText, record.note.ifBlank { null }).joinToString(" · ")
                 if (text.isNotBlank()) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(text, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }

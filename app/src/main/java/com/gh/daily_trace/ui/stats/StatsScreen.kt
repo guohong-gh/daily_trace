@@ -12,22 +12,32 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -35,6 +45,11 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.gh.daily_trace.di.Container
 import com.gh.daily_trace.domain.stats.PeriodStat
 import com.gh.daily_trace.domain.stats.RateResult
+import com.gh.daily_trace.ui.common.EmptyState
+import com.gh.daily_trace.ui.common.ItemBadge
+import com.gh.daily_trace.ui.common.LoadingState
+import com.gh.daily_trace.ui.common.SectionTitle
+import com.gh.daily_trace.ui.common.StatusPill
 import kotlin.math.roundToInt
 
 @Composable
@@ -58,23 +73,31 @@ fun StatsScreen(viewModel: StatsViewModel, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text("统计") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
             )
         },
     ) { padding ->
+        if (!state.loaded) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                LoadingState(text = "正在统计…")
+            }
+            return@Scaffold
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                "今天已完成 ${state.todayDone} / ${state.todayTotal}",
-                style = MaterialTheme.typography.titleMedium,
-            )
+            TodaySummaryCard(done = state.todayDone, total = state.todayTotal)
 
+            SectionTitle("统计范围")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatRange.entries.forEach { r ->
                     FilterChip(
@@ -85,65 +108,152 @@ fun StatsScreen(viewModel: StatsViewModel, onBack: () -> Unit) {
                 }
             }
 
-            Text("选项统计", style = MaterialTheme.typography.labelLarge)
+            SectionTitle("选项统计")
             if (state.itemStats.isEmpty()) {
-                Text("暂无使用中的选项", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            state.itemStats.forEach { stat -> ItemStatRow(stat) }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("趋势", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                TrendMode.entries.forEach { m ->
-                    FilterChip(
-                        selected = state.trendMode == m,
-                        onClick = { viewModel.setTrendMode(m) },
-                        label = { Text(m.label) },
-                    )
-                    Spacer(Modifier.width(6.dp))
+                EmptyState(
+                    emoji = "📊",
+                    title = "暂无使用中的选项",
+                    description = "创建并启用打卡选项后，这里会显示完成率与连续天数",
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    state.itemStats.forEach { stat -> ItemStatCard(stat) }
                 }
             }
-            Text(
-                "柱高 = 所有使用中选项的合计完成率（周对齐按设置）",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TrendBars(state.trend)
+
+            SectionTitle("趋势") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TrendMode.entries.forEach { m ->
+                        FilterChip(
+                            selected = state.trendMode == m,
+                            onClick = { viewModel.setTrendMode(m) },
+                            label = { Text(m.label) },
+                        )
+                    }
+                }
+            }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "柱高 = 所有使用中选项的合计完成率",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    TrendBars(state.trend)
+                }
+            }
+        }
+    }
+}
+
+/** 今日总览：环形进度 + 完成数量 */
+@Composable
+private fun TodaySummaryCard(done: Int, total: Int) {
+    val ratio = if (total == 0) 0f else done * 1f / total
+    val percent = (ratio * 100).roundToInt()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        ),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(16.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "今日完成",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "$done / $total 项",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+            Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    progress = { ratio },
+                    modifier = Modifier.size(64.dp),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
+                    strokeWidth = 6.dp,
+                )
+                Text(
+                    "$percent%",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ItemStatRow(stat: ItemStat) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (stat.item.icon.isNotEmpty()) {
-                Text(stat.item.icon)
-                Spacer(Modifier.width(6.dp))
+private fun ItemStatCard(stat: ItemStat) {
+    val ratio: Float = when {
+        stat.isQuota && stat.quotaTarget > 0 -> (stat.quotaDone * 1f / stat.quotaTarget).coerceIn(0f, 1f)
+        else -> (stat.rate.rate ?: 0.0).toFloat().coerceIn(0f, 1f)
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ItemBadge(
+                    icon = stat.item.icon,
+                    color = stat.item.color,
+                    size = 36.dp,
+                    iconSize = 18.sp,
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    stat.item.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (stat.isQuota) {
+                    Text(
+                        "${stat.quotaDone}/${stat.quotaTarget} 次",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                } else {
+                    Text(
+                        formatRate(stat.rate),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
-            Text(stat.item.name, modifier = Modifier.weight(1f))
-            if (stat.isQuota) {
+            Spacer(Modifier.height(10.dp))
+            LinearProgressIndicator(
+                progress = { ratio },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                drawStopIndicator = {},
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "本月 ${stat.quotaDone}/${stat.quotaTarget} 次",
-                    style = MaterialTheme.typography.bodyMedium,
+                    if (stat.isQuota) {
+                        "按月度配额统计，不计算连续"
+                    } else {
+                        "完成 ${stat.rate.doneDays}/${stat.rate.expectedDays} 天 · 最佳 ${stat.streak.best} 天"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
                 )
-            } else {
-                Text(
-                    formatRate(stat.rate),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                if (!stat.isQuota) {
+                    StatusPill("连续 ${stat.streak.current} 天", color = MaterialTheme.colorScheme.primary)
+                }
             }
         }
-        Text(
-            if (stat.isQuota) {
-                "按月度配额统计，不计算连续"
-            } else {
-                "完成 ${stat.rate.doneDays}/${stat.rate.expectedDays} 天 · 连续 ${stat.streak.current} 天 · 最佳 ${stat.streak.best} 天"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        HorizontalDivider(Modifier.padding(top = 8.dp))
     }
 }
 
@@ -152,10 +262,17 @@ private fun formatRate(rate: RateResult): String =
 
 @Composable
 private fun TrendBars(trend: List<PeriodStat>) {
-    if (trend.isEmpty()) return
+    if (trend.isEmpty()) {
+        Text(
+            "暂无数据",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
     val barArea = 96.dp
     Row(
-        modifier = Modifier.fillMaxWidth().height(barArea + 24.dp),
+        modifier = Modifier.fillMaxWidth().height(barArea + 28.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
         trend.forEach { p ->
@@ -168,6 +285,7 @@ private fun TrendBars(trend: List<PeriodStat>) {
                     Modifier
                         .width(16.dp)
                         .height(height)
+                        .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
                         .background(
                             if (p.expectedDays == 0) {
                                 MaterialTheme.colorScheme.surfaceVariant
@@ -176,7 +294,13 @@ private fun TrendBars(trend: List<PeriodStat>) {
                             }
                         ),
                 )
-                Text(p.label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    p.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
             }
         }
     }

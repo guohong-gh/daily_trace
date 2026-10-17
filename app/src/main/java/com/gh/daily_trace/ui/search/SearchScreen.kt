@@ -13,15 +13,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -34,6 +40,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.gh.daily_trace.di.Container
+import com.gh.daily_trace.ui.common.EmptyState
+import com.gh.daily_trace.ui.common.ItemBadge
+import com.gh.daily_trace.ui.common.LoadingState
+import com.gh.daily_trace.ui.common.StatusPill
 import com.gh.daily_trace.ui.common.formatValue
 
 @Composable
@@ -52,7 +62,11 @@ fun SearchScreen(viewModel: SearchViewModel, onBack: () -> Unit, onOpenDate: (Lo
         topBar = {
             TopAppBar(
                 title = { Text("搜索") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
             )
         },
     ) { padding ->
@@ -61,17 +75,43 @@ fun SearchScreen(viewModel: SearchViewModel, onBack: () -> Unit, onOpenDate: (Lo
                 value = state.query,
                 onValueChange = { viewModel.setQuery(it) },
                 placeholder = { Text("搜索打卡备注、选项名或日期备注") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (state.query.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.setQuery("") }) {
+                            Icon(Icons.Filled.Close, contentDescription = "清空输入")
+                        }
+                    }
+                },
                 singleLine = true,
+                shape = MaterialTheme.shapes.extraLarge,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
 
             when {
-                state.query.isBlank() -> Hint("输入关键词开始搜索")
+                state.query.isBlank() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                    EmptyState(
+                        emoji = "🔎",
+                        title = "搜索历史记录",
+                        description = "输入关键词，搜索打卡备注、选项名与日期备注",
+                    )
+                }
 
-                !state.searched -> Hint("搜索中…")
+                !state.searched -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                    LoadingState(text = "搜索中…")
+                }
 
-                state.records.isEmpty() && state.notes.isEmpty() -> Hint("没有匹配结果")
+                state.records.isEmpty() && state.notes.isEmpty() -> Box(
+                    Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    EmptyState(
+                        emoji = "🫥",
+                        title = "没有匹配结果",
+                        description = "换个关键词，或检查是否有错别字",
+                    )
+                }
 
                 else -> LazyColumn(
                     contentPadding = PaddingValues(bottom = 24.dp),
@@ -82,6 +122,7 @@ fun SearchScreen(viewModel: SearchViewModel, onBack: () -> Unit, onOpenDate: (Lo
                             Text(
                                 "打卡记录（${state.records.size}）",
                                 style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 8.dp),
                             )
                         }
@@ -94,6 +135,7 @@ fun SearchScreen(viewModel: SearchViewModel, onBack: () -> Unit, onOpenDate: (Lo
                             Text(
                                 "日期备注（${state.notes.size}）",
                                 style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 8.dp),
                             )
                         }
@@ -108,31 +150,34 @@ fun SearchScreen(viewModel: SearchViewModel, onBack: () -> Unit, onOpenDate: (Lo
 }
 
 @Composable
-private fun Hint(text: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
 private fun RecordHitCard(hit: RecordHit, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(hit.record.itemIconSnapshot.ifBlank { "•" }, fontSize = 18.sp)
-                Spacer(Modifier.width(8.dp))
+                ItemBadge(
+                    icon = hit.record.itemIconSnapshot,
+                    color = hit.record.itemColorSnapshot,
+                    size = 32.dp,
+                    iconSize = 16.sp,
+                )
+                Spacer(Modifier.width(12.dp))
                 Text(
                     hit.record.itemNameSnapshot,
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )
-                Text(hit.dateLabel, style = MaterialTheme.typography.bodySmall)
+                StatusPill(hit.dateLabel, color = MaterialTheme.colorScheme.secondary)
             }
             val valueText = hit.record.value?.let { formatValue(it) + hit.record.unit }
             val text = listOfNotNull(valueText, hit.record.note.ifBlank { null }).joinToString(" · ")
             if (text.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(text, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 44.dp),
+                )
             }
         }
     }
@@ -142,8 +187,8 @@ private fun RecordHitCard(hit: RecordHit, onClick: () -> Unit) {
 private fun NoteHitCard(hit: NoteHit, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Column(Modifier.padding(12.dp)) {
-            Text(hit.dateLabel, style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(4.dp))
+            StatusPill(hit.dateLabel, color = MaterialTheme.colorScheme.secondary)
+            Spacer(Modifier.height(6.dp))
             Text(hit.note.note, style = MaterialTheme.typography.bodyMedium)
         }
     }

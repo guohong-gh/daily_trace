@@ -23,12 +23,19 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -49,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -58,6 +66,8 @@ import com.gh.daily_trace.data.model.MultiRecordRule
 import com.gh.daily_trace.data.model.RepeatType
 import com.gh.daily_trace.di.Container
 import com.gh.daily_trace.reminder.ReminderPermissions
+import com.gh.daily_trace.ui.common.SectionCard
+import com.gh.daily_trace.ui.common.SwitchRow
 import java.time.LocalDate
 
 private val COLOR_PALETTE = listOf(
@@ -84,6 +94,7 @@ fun ItemEditScreen(viewModel: ItemEditViewModel, onBack: () -> Unit) {
     var showGroupPicker by remember { mutableStateOf(false) }
     var confirmTrash by remember { mutableStateOf(false) }
     var timePickerTarget by remember { mutableStateOf<TimeField?>(null) }
+    val canSave = state.loaded && state.name.isNotBlank()
 
     val notificationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -111,11 +122,15 @@ fun ItemEditScreen(viewModel: ItemEditViewModel, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text(if (state.isNew) "新建选项" else "编辑选项") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
                 actions = {
                     TextButton(
                         onClick = { viewModel.save() },
-                        enabled = state.loaded && state.name.isNotBlank(),
+                        enabled = canSave,
                     ) { Text("保存") }
                 },
             )
@@ -129,140 +144,153 @@ fun ItemEditScreen(viewModel: ItemEditViewModel, onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OutlinedTextField(
-                value = state.name,
-                onValueChange = { v -> viewModel.update { it.copy(name = v) } },
-                label = { Text("名称") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionCard(title = "基本信息") {
                 OutlinedTextField(
-                    value = state.icon,
-                    onValueChange = { v -> viewModel.update { it.copy(icon = v.take(4)) } },
-                    label = { Text("图标") },
+                    value = state.name,
+                    onValueChange = { v -> viewModel.update { it.copy(name = v) } },
+                    label = { Text("名称") },
+                    placeholder = { Text("例如：喝水、跑步、背单词") },
+                    isError = state.loaded && state.name.isBlank(),
+                    supportingText = {
+                        if (state.loaded && state.name.isBlank()) {
+                            Text("名称不能为空")
+                        }
+                    },
                     singleLine = true,
-                    modifier = Modifier.width(120.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.width(12.dp))
-                Row(
-                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    COLOR_PALETTE.forEach { c ->
-                        Box(
-                            modifier = Modifier
-                                .size(26.dp)
-                                .clip(CircleShape)
-                                .background(Color(c))
-                                .clickable { viewModel.update { it.copy(color = c) } }
-                                .then(
-                                    if (state.color == c) {
-                                        Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                    } else {
-                                        Modifier
-                                    }
-                                ),
-                        )
-                    }
-                }
-            }
 
-            Text("类型", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CheckType.entries.forEach { t ->
-                    FilterChip(
-                        selected = state.type == t,
-                        onClick = { viewModel.update { it.copy(type = t) } },
-                        label = { Text(typeLabel(t)) },
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = state.icon,
+                        onValueChange = { v -> viewModel.update { it.copy(icon = v.take(4)) } },
+                        label = { Text("图标") },
+                        supportingText = { Text("emoji") },
+                        singleLine = true,
+                        modifier = Modifier.width(112.dp),
                     )
-                }
-            }
-
-            if (state.type != CheckType.BOOLEAN) {
-                OutlinedTextField(
-                    value = state.unit,
-                    onValueChange = { v -> viewModel.update { it.copy(unit = v) } },
-                    label = { Text("单位（如 次 / 分钟 / 毫升）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = state.targetText,
-                    onValueChange = { v -> viewModel.update { it.copy(targetText = v) } },
-                    label = { Text("目标值（可留空）") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            OutlinedTextField(
-                value = state.defaultNote,
-                onValueChange = { v -> viewModel.update { it.copy(defaultNote = v) } },
-                label = { Text("默认备注（可留空）") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            val groupName = state.groups.firstOrNull { it.id == state.groupId }?.name ?: "不分组"
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("分组", modifier = Modifier.weight(1f))
-                TextButton(onClick = { showGroupPicker = true }) { Text("$groupName ▾") }
-            }
-
-            if (state.type != CheckType.BOOLEAN) {
-                Text("同一天多次打卡", style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MultiRecordRule.entries.forEach { r ->
-                        FilterChip(
-                            selected = state.rule == r,
-                            onClick = { viewModel.update { it.copy(rule = r) } },
-                            label = { Text(ruleLabel(r)) },
-                        )
+                    Spacer(Modifier.width(12.dp))
+                    Row(
+                        modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        COLOR_PALETTE.forEach { c ->
+                            ColorSwatch(color = c, selected = state.color == c) {
+                                viewModel.update { it.copy(color = c) }
+                            }
+                        }
                     }
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("启用（出现在打卡列表）", modifier = Modifier.weight(1f))
-                Switch(
+            SectionCard(title = "记录方式") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CheckType.entries.forEach { t ->
+                        FilterChip(
+                            selected = state.type == t,
+                            onClick = { viewModel.update { it.copy(type = t) } },
+                            label = { Text(typeLabel(t)) },
+                        )
+                    }
+                }
+
+                if (state.type != CheckType.BOOLEAN) {
+                    val targetInvalid = state.targetText.isNotBlank() &&
+                        state.targetText.trim().toDoubleOrNull() == null
+                    OutlinedTextField(
+                        value = state.unit,
+                        onValueChange = { v -> viewModel.update { it.copy(unit = v) } },
+                        label = { Text("单位") },
+                        placeholder = { Text("如 次 / 分钟 / 毫升") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = state.targetText,
+                        onValueChange = { v -> viewModel.update { it.copy(targetText = v) } },
+                        label = { Text("目标值（可留空）") },
+                        isError = targetInvalid,
+                        supportingText = {
+                            Text(if (targetInvalid) "请输入数字，如 30 或 2.5" else "留空表示只记录、不设目标")
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "同一天多次打卡",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MultiRecordRule.entries.forEach { r ->
+                            FilterChip(
+                                selected = state.rule == r,
+                                onClick = { viewModel.update { it.copy(rule = r) } },
+                                label = { Text(ruleLabel(r)) },
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = state.defaultNote,
+                    onValueChange = { v -> viewModel.update { it.copy(defaultNote = v) } },
+                    label = { Text("默认备注（可留空）") },
+                    placeholder = { Text("每次打卡自动带上，例如：晨跑") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            SectionCard(title = "分组与状态") {
+                val groupName = state.groups.firstOrNull { it.id == state.groupId }?.name ?: "不分组"
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text("分组", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { showGroupPicker = true }) {
+                        Text("$groupName ▾")
+                    }
+                }
+                SwitchRow(
+                    title = "启用",
+                    subtitle = "出现在今日打卡列表",
                     checked = state.enabled,
                     onCheckedChange = { v -> viewModel.update { it.copy(enabled = v) } },
                 )
             }
 
-            Text("提醒", style = MaterialTheme.typography.labelLarge)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("启用提醒", modifier = Modifier.weight(1f))
-                Switch(
+            SectionCard(title = "提醒") {
+                SwitchRow(
+                    title = "启用提醒",
                     checked = state.reminderEnabled,
                     onCheckedChange = { v -> viewModel.update { it.copy(reminderEnabled = v) } },
                 )
-            }
 
-            if (state.reminderEnabled) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("提醒时刻", modifier = Modifier.weight(1f))
-                    TextButton(onClick = { timePickerTarget = TimeField.REMIND }) {
-                        Text(formatTime(state.reminderTime))
+                if (state.reminderEnabled) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text("提醒时刻", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { timePickerTarget = TimeField.REMIND }) {
+                            Text(
+                                formatTime(state.reminderTime),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
                     }
-                }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = state.reminderRepeat == RepeatType.DAILY,
-                        onClick = { viewModel.update { it.copy(reminderRepeat = RepeatType.DAILY) } },
-                        label = { Text("每天") },
-                    )
-                    FilterChip(
-                        selected = state.reminderRepeat == RepeatType.WEEKDAYS,
-                        onClick = { viewModel.update { it.copy(reminderRepeat = RepeatType.WEEKDAYS) } },
-                        label = { Text("工作日") },
-                    )
-                    FilterChip(
-                        selected = state.reminderRepeat == RepeatType.WEEKLY,
-                        onClick = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        RepeatChip(
+                            selected = state.reminderRepeat == RepeatType.DAILY,
+                            label = "每天",
+                        ) { viewModel.update { it.copy(reminderRepeat = RepeatType.DAILY) } }
+                        RepeatChip(
+                            selected = state.reminderRepeat == RepeatType.WEEKDAYS,
+                            label = "工作日",
+                        ) { viewModel.update { it.copy(reminderRepeat = RepeatType.WEEKDAYS) } }
+                        RepeatChip(
+                            selected = state.reminderRepeat == RepeatType.WEEKLY,
+                            label = "每周",
+                        ) {
                             viewModel.update {
                                 it.copy(
                                     reminderRepeat = RepeatType.WEEKLY,
@@ -273,81 +301,110 @@ fun ItemEditScreen(viewModel: ItemEditViewModel, onBack: () -> Unit) {
                                     },
                                 )
                             }
-                        },
-                        label = { Text("每周") },
-                    )
-                }
-
-                if (state.reminderRepeat == RepeatType.WEEKLY) {
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        WEEKDAY_LABELS.forEachIndexed { index, label ->
-                            val day = index + 1
-                            FilterChip(
-                                selected = day in state.reminderDays,
-                                onClick = {
-                                    viewModel.update {
-                                        it.copy(
-                                            reminderDays = if (day in it.reminderDays) {
-                                                it.reminderDays - day
-                                            } else {
-                                                it.reminderDays + day
-                                            },
-                                        )
-                                    }
-                                },
-                                label = { Text(label) },
-                            )
                         }
                     }
-                }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("免打扰时段（静默提醒）", modifier = Modifier.weight(1f))
-                    Switch(
+                    if (state.reminderRepeat == RepeatType.WEEKLY) {
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            WEEKDAY_LABELS.forEachIndexed { index, label ->
+                                val day = index + 1
+                                FilterChip(
+                                    selected = day in state.reminderDays,
+                                    onClick = {
+                                        viewModel.update {
+                                            it.copy(
+                                                reminderDays = if (day in it.reminderDays) {
+                                                    it.reminderDays - day
+                                                } else {
+                                                    it.reminderDays + day
+                                                },
+                                            )
+                                        }
+                                    },
+                                    label = { Text(label) },
+                                )
+                            }
+                        }
+                    }
+
+                    SwitchRow(
+                        title = "免打扰时段",
+                        subtitle = "此时段内静默提醒，不响铃振动",
                         checked = state.dndEnabled,
                         onCheckedChange = { v -> viewModel.update { it.copy(dndEnabled = v) } },
                     )
-                }
-                if (state.dndEnabled) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("时段", modifier = Modifier.weight(1f))
-                        TextButton(onClick = { timePickerTarget = TimeField.DND_START }) {
-                            Text(formatTime(state.dndStart))
-                        }
-                        Text("—")
-                        TextButton(onClick = { timePickerTarget = TimeField.DND_END }) {
-                            Text(formatTime(state.dndEnd))
+                    if (state.dndEnabled) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Text("时段", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { timePickerTarget = TimeField.DND_START }) {
+                                Text(formatTime(state.dndStart))
+                            }
+                            Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton(onClick = { timePickerTarget = TimeField.DND_END }) {
+                                Text(formatTime(state.dndEnd))
+                            }
                         }
                     }
-                }
 
-                if (!state.notificationsAllowed) {
-                    Text("尚未允许通知权限，提醒不会显示。", color = MaterialTheme.colorScheme.error)
-                    OutlinedButton(
-                        onClick = { notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
-                    ) { Text("允许通知") }
-                }
-                if (!state.exactAlarmAllowed) {
-                    Text("未允许精确闹钟，提醒可能延迟数分钟。")
-                    OutlinedButton(
-                        onClick = {
-                            context.startActivity(ReminderPermissions.exactAlarmSettingsIntent(context))
-                        }
-                    ) { Text("去允许精准提醒") }
+                    if (!state.notificationsAllowed) {
+                        PermissionNotice(
+                            text = "尚未允许通知权限，提醒不会显示。",
+                            actionLabel = "允许通知",
+                            onAction = {
+                                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            },
+                        )
+                    }
+                    if (!state.exactAlarmAllowed) {
+                        PermissionNotice(
+                            text = "未允许精确闹钟，提醒可能延迟数分钟。",
+                            actionLabel = "去允许精准提醒",
+                            onAction = {
+                                context.startActivity(ReminderPermissions.exactAlarmSettingsIntent(context))
+                            },
+                        )
+                    }
                 }
             }
 
-            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            state.error?.let { error ->
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "⚠️ $error",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+
+            Button(
+                onClick = { viewModel.save() },
+                enabled = canSave,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (state.isNew) "创建选项" else "保存修改") }
 
             if (!state.isNew) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { viewModel.toggleArchived() }) {
-                        Text(if (state.archived) "取消归档" else "归档")
-                    }
-                    TextButton(onClick = { confirmTrash = true }) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedButton(
+                        onClick = { viewModel.toggleArchived() },
+                        modifier = Modifier.weight(1f),
+                    ) { Text(if (state.archived) "取消归档" else "归档") }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(
+                        onClick = { confirmTrash = true },
+                        modifier = Modifier.weight(1f),
+                    ) {
                         Text("移入回收站", color = MaterialTheme.colorScheme.error)
                     }
                 }
@@ -421,6 +478,63 @@ private fun formatTime(minutes: Int): String =
     "%02d:%02d".format(minutes.coerceIn(0, 1439) / 60, minutes.coerceIn(0, 1439) % 60)
 
 @Composable
+private fun ColorSwatch(color: Int, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(Color(color))
+                .then(
+                    if (selected) {
+                        Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                    } else {
+                        Modifier
+                    }
+                ),
+        )
+        if (selected) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = "已选颜色",
+                tint = Color.White,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RepeatChip(selected: Boolean, label: String, onClick: () -> Unit) {
+    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
+}
+
+@Composable
+private fun PermissionNotice(text: String, actionLabel: String, onAction: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                "⚠️ $text",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Spacer(Modifier.size(8.dp))
+            OutlinedButton(onClick = onAction) { Text(actionLabel) }
+        }
+    }
+}
+
+@Composable
 private fun ReminderTimePickerDialog(
     initialMinutes: Int,
     onConfirm: (Int) -> Unit,
@@ -444,13 +558,33 @@ private fun ReminderTimePickerDialog(
 
 @Composable
 private fun GroupOption(name: String, selected: Boolean, onClick: () -> Unit) {
-    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Text((if (selected) "✓ " else "") + name, modifier = Modifier.fillMaxWidth())
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 12.dp),
+    ) {
+        Text(
+            name,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        if (selected) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = "已选中",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 
 private fun typeLabel(type: CheckType): String = when (type) {
-    CheckType.BOOLEAN -> "布尔"
+    CheckType.BOOLEAN -> "打卡"
     CheckType.COUNT -> "计数"
     CheckType.DURATION -> "时长"
     CheckType.VALUE -> "数值"

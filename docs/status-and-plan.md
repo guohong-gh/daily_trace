@@ -9,7 +9,7 @@
 - 单元测试 61 个用例全部通过（Robolectric 内存库与纯逻辑单测，2026-10-17 验证，含 M2 流程测试）。
 - debug APK 可构建；UI 层 M1 已从模板替换为真实页面（见下）。
 - Manifest 无任何权限；allowBackup=true，备份规则仍为模板。
-- 工作区未初始化 git；README 与本文档已补齐；无 CI。
+- git 已初始化（分支 main）并推送至 Gitee（https://gitee.com/itaita/daily_trace_app，2026-10-17 初始提交 8e6959b）；README 与本文档已补齐；无 CI。
 
 ## 二、核心架构与数据流
 
@@ -22,7 +22,7 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 - 单一数据入口为 `DailyTraceRepository`，向上暴露 Flow。
 - 打卡写入先由 `CheckInPlanner` 生成纯数据计划（inserts/updates/deletes），再由 `applyPlan` 落库 —— 规则可单测。
 - 领域纯函数层（均可穷举单测）：`domain/time/DayClock`（逻辑日/周起始/月历网格）、`domain/checkin/CheckInPlanner`（写入计划）、`domain/checkin/BackfillPolicy`（补卡合法性）、`domain/filter/FilterMatcher`（筛选匹配）。
-- UI 共享组件：`ui/common/`（Formatters、RecordDialog），今日页/日期详情页复用同一记录对话框与格式化。
+- UI 共享组件：`ui/common/`（Formatters、RecordDialog、AppUi：区块卡片/徽章/空态/胶囊/开关行），今日页/日期详情页复用同一记录对话框与格式化。
 
 ## 三、阶段计划（按里程碑）
 
@@ -35,6 +35,7 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 | M4 统计 | 完成率、连续打卡（allowSkip）、周/月趋势 | ✅ 完成（99 用例全绿；模拟器验收通过） |
 | M5 备份 | 导出/导入、自动备份、备份规则定制 | ✅ 完成（103 用例全绿；模拟器验收通过） |
 | M6 发布 | release 构建 + R8 验证、测试补强、lint | ✅ 完成（release 装机运行；lint 错误清零） |
+| UI 优化 | 品牌主题、通用组件库、九屏空态/反馈/校验统一（仅 UI 层） | ✅ 完成（103 用例全绿；lint 无错误；模拟器走查截图 ui2-*） |
 
 M1 验收标准：新建 4 类型选项 → 各自打卡 → 杀进程重启数据完整；MultiRecordRule 三种规则行为有单测。
 自动化部分已达成（40 用例全绿 + APK 构建成功）；模拟器（Medium_Phone_API_37.0）手动验收通过（见第八节）。
@@ -115,7 +116,7 @@ M6 发布（交付细节）：
 1. 原始需求文档（代码注释引用的 "Phase 1 / Phase 3"）在哪里？
 2. 首个真正的 MVP 交付时间与范围？是否上架？
 3. 提醒的精确程度要求（决定精确闹钟权限 vs WorkManager）？——已按 D13 默认方案落地：权限可用则准点，否则降级并在 UI 引导；如要求"任何情况下都准点"请告知（可再评估 WorkManager 兜底或 USE_EXACT_ALARM）。
-4. git 何时启用？是否需要远程仓库与 CI？
+4. git 已启用并推送 Gitee（2026-10-17）；是否需要 CI？
 5. 工具链是否长期维持激进版本？
 
 ## 七、技术债登记
@@ -131,7 +132,7 @@ M6 发布（交付细节）：
 | P3 | 提醒时刻按 AppSettings.timezone 解释；设备系统时区与设置不一致时视觉上有时区偏移 | 真实用户默认一致；后续设置页可加时区选择 |
 | P2 | skipDates / allowSkip 已参与统计（跳过不计期望、不中断连续），但尚无 UI 登记入口（数据层与测试已具备） | 日期详情页后续提供「登记休息日」 |
 | P3 | 统计口径中 CUSTOM 频率按「每天」处理；TIMES_PER_MONTH 仅月度配额进度 | 需求明确后再细化 |
-| P3 | lint 余留警告 18 条：UnusedResources 7、GradleDependency 6、InlinedApi 2、RedundantLabel 1、NewerVersionAvailable 1 | 不影响发布；发版前可按需清理 |
+| P3 | lint 余留警告 17 条：UnusedResources 7、GradleDependency 6、InlinedApi 2、RedundantLabel 1、NewerVersionAvailable 1 | 不影响发布；发版前可按需清理 |
 | P3 | release 暂用调试签名；`AppSettings.encryption` 字段未实现（备份为明文 JSON） | 正式分发前替换签名；加密需求明确后再做 |
 | P3 | `androidx.work:work-runtime` 已引入但未使用（自动备份改用应用生命周期触发） | 后续做后台定时或移除依赖 |
 | P3 | 应用名已改为「每日打卡」（M6）；包名保持 com.gh.daily_trace | 如需统一改名再处理 |
@@ -184,3 +185,37 @@ M6 手动验收（通过）：
 2. R8 初版崩溃（IllegalAccessError，packageScope 所致）→ 移除后复测：今日/统计/设置/立即备份（JSON 编码）全部正常。
 3. `lintDebug` 9 错误清零后 BUILD SUCCESSFUL（含 API 26 渠道守卫这一真实缺陷修复）。
 4. release 下设置页显示「本机备份 2 份 · 最近 10-17 05:58」，写入路径正常（release 不可 run-as，经界面与 debug 版对照确认）。
+
+## 九、UI/UX 优化批次（2026-10-17，仅 UI 层）
+
+范围与原则：布局/色彩/字体层级/间距对齐、卡片与列表、导航清晰度、空态/加载/反馈提示、表单校验、减少步骤、可读性与无障碍（≥48dp 点击区、对比度、contentDescription）。所有业务规则、数据字段语义、导航路由与 ViewModel 行为保持不变。
+
+交付内容：
+1. 品牌主题：`ui/theme/Color.kt` 自建 Material 3 明暗双色板（主色「生长绿」#2E6B4A，辅助琥珀），`Type.kt` 完整字阶（标题半粗、辅助文字 11sp 起），`Shape.kt` 形状层级（卡片 14dp 圆角、按钮胶囊化）。
+2. 通用组件库 `ui/common/AppUi.kt`：SectionCard（带主色标题的区块卡片）、ItemBadge/DoneBadge（选项色浅底 emoji 徽章 / 完成对勾徽章）、SectionTitle、EmptyState、LoadingState、StatusPill、SwitchRow。
+3. 九个页面统一改造：
+   - 今日页：进度卡（百分比 + 进度条 + 全完成鼓励语）、图标按钮导航（日历/搜索/更多菜单带 emoji 菜单项）、分组计数「3/4」、卡片展开箭头旋转动画、布尔完成态换对勾徽章、记录行删除改图标按钮 + Snackbar、双空态（无选项/筛选无命中）。
+   - 日历页：月份卡片（图标箭头切换）、今日主色圆点高亮、图例点。
+   - 日期详情：备注卡片 +「备注已保存」反馈、补卡选择器带徽章列表、记录卡（补卡胶囊 + 删除图标 + Snackbar）、空态。
+   - 搜索：圆角搜索框（放大镜/一键清空）、加载态（转圈）、初始/无结果空态、命中卡片带日期胶囊。
+   - 筛选视图：列表卡片（应用为主按钮、删除错误色）、空态、编辑器底部等宽「取消/保存视图」（名称空时禁用）。
+   - 选项管理：行卡片（类型摘要 + MoreVert）、操作弹窗改为 emoji 图标行（危险操作分隔线 + 错误色）、空态。
+   - 选项编辑：分区块卡片（基本信息/记录方式/分组与状态/提醒）、色板选中环 + 对勾、目标值非法行内红字校验、名称空必填提示、权限提示卡、底部整宽保存按钮 + 危险操作行。
+   - 统计：今日总览卡（环形进度）、选项统计卡（进度条 + 连续天数胶囊）、趋势卡（圆角柱状图）、加载态与空态。
+   - 设置：分区卡片（外观/使用习惯/备份/关于）、SwitchRow 带说明文案、版本号与数据说明。
+4. 依赖：新增 `androidx.compose.material:material-icons-core:1.7.8`（material3 1.4 不再传递依赖图标库）；所有图标按钮带中文 contentDescription。
+
+新决策：
+- D19：默认关闭 Material You 动态取色（`AppSettings.dynamicColor` 默认 false），保证品牌色板一致性；用户可在设置开启（Android 12+）。
+- D20：图标方案采用官方 material-icons-core 显式依赖（不手写矢量路径，避免运行时解析风险）。
+- D21：操作反馈统一为 Snackbar（删除记录/保存备注/补卡/备份等）；空态与加载态统一走 AppUi 组件；文案维持硬编码中文（与 D2 一致）。
+
+验证：
+- `testDebugUnitTest` 103/103 全绿；`lintDebug` BUILD SUCCESSFUL（17 条警告均为历史存量，无错误、无新增类别）。
+- 模拟器走查 10+ 屏：今日/日历/日期详情/搜索（空态+结果）/筛选（列表+编辑器）/管理（列表+操作弹窗）/选项编辑（上/提醒区）/统计/设置（浅色+深色）/记录对话框/补卡选择器/展开态/删除反馈 Snackbar，logcat 无 FATAL。
+- 截图：`docs/screenshots/ui2-01..ui2-20`（浅色品牌色板为主；ui2-14/15 为深色模式；ui2-18 删除反馈；ui2-19 补卡选择器）；既存 01–10 为优化前素材，可前后对比。
+
+已知取舍：
+- 模拟器演示数据中的选项无 emoji 图标（历史数据），徽章显示为「•」；在编辑页填入图标后即正常。
+- 导出/导入仍使用系统 SAF 原生交互与确认弹窗，未做自定义样式（原生一致性优先）。
+- 日期详情「清除」备注按钮沿用原逻辑（清空并立即保存）。
