@@ -1,0 +1,193 @@
+package com.gh.daily_trace.ui.stats
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.gh.daily_trace.data.model.AppSettings
+import com.gh.daily_trace.data.model.CheckItem
+import com.gh.daily_trace.data.model.CheckRecord
+import com.gh.daily_trace.data.model.FrequencyRule
+import com.gh.daily_trace.data.model.FrequencyType
+import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.domain.stats.DayOutcome
+import com.gh.daily_trace.domain.stats.ItemRule
+import com.gh.daily_trace.domain.stats.PeriodStat
+import com.gh.daily_trace.domain.stats.RateResult
+import com.gh.daily_trace.domain.stats.StatsCalculator
+import com.gh.daily_trace.domain.stats.StreakResult
+import com.gh.daily_trace.domain.time.DayClock
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import java.time.LocalDate
+import java.time.YearMonth
+
+enum class StatRange(val label: String) {
+    THIS_WEEK("本周"),
+    THIS_MONTH("本月"),
+    LAST_30("近30天"),
+}
+
+enum class TrendMode(val label: String) {
+    WEEK("周"),
+    MONTH("月"),
+}
+
+data class ItemStat(
+    val item: CheckItem,
+    val rate: RateResult,
+    val streak: StreakResult,
+    /** TIMES_PER_MONTH：本月已完成天数与目标次数 */
+    val isQuota: Boolean = false,
+    val quotaDone: Int = 0,
+    val quotaTarget: Int = 0,
+)
+
+data class StatsUi(
+    val range: StatRange = StatRange.THIS_WEEK,
+    val trendMode: TrendMode = TrendMode.WEEK,
+    val todayDone: Int = 0,
+    val todayTotal: Int = 0,
+    val itemStats: List<ItemStat> = emptyList(),
+    val trend: List<PeriodStat> = emptyList(),
+    val loaded: Boolean = false,
+)
+
+/** 统计页：范围切换（本周/本月/近30天）+ 每项完成率与连续 + 周/月趋势 */
+class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel() {
+
+    private val range = MutableStateFlow(StatRange.THIS_WEEK)
+    private val trendMode = MutableStateFlow(TrendMode.WEEK)
+    private val tick = MutableStateFlow(0)
+
+    private data class Base(
+        val items: List<CheckItem>,
+        val records: List<CheckRecord>,
+        val settings: AppSettings,
+        val rules: List<FrequencyRule>,
+        val range: StatRange,
+    )
+
+    private val base = combine(
+        repository.activeItems,
+        repository.allRecords,
+        repository.settings,
+        repository.frequencyRules,
+        range,
+    ) { items, records, settings, rules, rangeValue ->
+        Base(items, records, settings, rules, rangeValue)
+    }
+
+    private val withTrend = combine(base, trendMode) { b, mode -> b to mode }
+
+    val uiState: StateFlow<StatsUi> = combine(withTrend, tick) { (b, mode), _ ->
+        compute(b.items, b.records, b.settings, b.rules, b.range, mode)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsUi())
+
+    fun setRange(value: StatRange) {
+        range.value = value
+    }
+
+    fun setTrendMode(value: TrendMode) {
+        trendMode.value = value
+    }
+
+    /** 回前台刷新（跨逻辑日边界） */
+    fun refresh() {
+        tick.value += 1
+    }
+
+    private fun compute(
+        items: List<CheckItem>,
+        records: List<CheckRecord>,
+        settings: AppSettings,
+        rules: List<FrequencyRule>,
+        rangeValue: StatRange,
+        mode: TrendMode,
+    ): StatsUi {
+        val today = DayClock.from(settings).today()
+        val recordsByDay = records.groupBy { it.date }
+        val rulesByItem = rules.associateBy { it.itemId }
+        val partial = settings.partialCountsAsDone
+
+        val (start, end) = rangeDays(rangeValue, settings, today)
+
+        val itemStats = items.map { item ->
+            val rule = rulesByItem[item.id]
+            val isQuota = rule?.type == FrequencyType.TIMES_PER_MONTH
+            ItemStat(
+                item = item,
+                rate = StatsCalculator.rate(item.id, rule, recordsByDay, start, end, partial),
+                streak = StatsCalculator.streaks(
+                    itemId = item.id,
+                    rule = rule,
+                    recordsByDay = recordsByDay,
+                    today = today,
+                    partialCountsAsDone = partial,
+                    sinceDay = sinceDayOf(item, records, today),
+                ),
+                isQuota = isQuota,
+                quotaDone = if (isQuota) StatsCalculator.monthlyQuotaProgress(item.id, recordsByDay, today) else 0,
+                quotaTarget = rule?.timesPerMonth ?: 0,
+            )
+        }
+
+        val itemRules = items.map { ItemRule(it.id, rulesByItem[it.id]) }
+        val trend = when (mode) {
+            TrendMode.WEEK -> StatsCalculator.weeklyTrend(
+                items = itemRules,
+                recordsByDay = recordsByDay,
+                today = today,
+                weekStart = settings.weekStart,
+                weeks = 8,
+                partialCountsAsDone = partial,
+            )
+            TrendMode.MONTH -> StatsCalculator.monthlyTrend(
+                items = itemRules,
+                recordsByDay = recordsByDay,
+                today = today,
+                months = 6,
+                partialCountsAsDone = partial,
+            )
+        }
+
+        val todayByItem = recordsByDay[today].orEmpty().groupBy { it.itemId }
+        val todayDone = items.count {
+            StatsCalculator.outcomeOf(
+                itemId = it.id,
+                day = today,
+                rule = rulesByItem[it.id],
+                recordsOfDay = todayByItem[it.id].orEmpty(),
+                partialCountsAsDone = partial,
+            ) == DayOutcome.DONE
+        }
+
+        return StatsUi(
+            range = rangeValue,
+            trendMode = mode,
+            todayDone = todayDone,
+            todayTotal = items.size,
+            itemStats = itemStats,
+            trend = trend,
+            loaded = true,
+        )
+    }
+
+    private fun rangeDays(range: StatRange, settings: AppSettings, today: Long): Pair<Long, Long> =
+        when (range) {
+            StatRange.THIS_WEEK -> {
+                val ws = settings.weekStart.coerceIn(1, 7)
+                val dow = LocalDate.ofEpochDay(today).dayOfWeek.value
+                (today - ((dow - ws + 7) % 7)) to today
+            }
+            StatRange.THIS_MONTH -> {
+                val ym = YearMonth.from(LocalDate.ofEpochDay(today))
+                ym.atDay(1).toEpochDay() to today
+            }
+            StatRange.LAST_30 -> (today - 29) to today
+        }
+
+    private fun sinceDayOf(item: CheckItem, records: List<CheckRecord>, today: Long): Long =
+        records.filter { it.itemId == item.id }.minOfOrNull { it.date } ?: today
+}

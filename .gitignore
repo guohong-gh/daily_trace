@@ -1,0 +1,19 @@
+# Gradle / 构建产物
+.gradle/
+.kotlin/
+**/build/
+/build
+/captures
+.externalNativeBuild
+.cxx
+
+# IDE
+.idea/
+*.iml
+
+# 本机配置（含 SDK 路径）
+local.properties
+
+# 系统
+.DS_Store
+Thumbs.db
