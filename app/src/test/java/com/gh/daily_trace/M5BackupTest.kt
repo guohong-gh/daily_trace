@@ -112,8 +112,8 @@ class M5BackupTest {
         db.dayNoteDao().upsert(DayNote(date = 20742, note = "累了"))
         db.reminderDao().upsert(
             Reminder(
-                itemId = item1, time = 510, repeat = RepeatType.WEEKLY, enabled = false,
-                snooze = 15, dndStart = 1320, dndEnd = 420,
+                itemId = item1, time = 510, repeat = RepeatType.WEEKLY, daysOfWeek = listOf(1, 4),
+                enabled = false, snooze = 15, dndStart = 1320, dndEnd = 420,
             )
         )
         db.filterViewDao().upsert(
@@ -124,7 +124,7 @@ class M5BackupTest {
         )
         db.frequencyRuleDao().upsert(
             FrequencyRule(
-                itemId = item1, type = FrequencyType.DAYS_OF_WEEK, daysOfWeek = listOf(1, 3, 5),
+                itemId = item1, type = FrequencyType.CUSTOM, intervalDays = 3, anchorEpochDay = 20700L,
                 targetValue = 3.0, allowSkip = false, skipDates = listOf(20700, 20701),
             )
         )
@@ -170,6 +170,7 @@ class M5BackupTest {
         assertNotNull(reminder)
         assertEquals(510, reminder!!.time)
         assertEquals(RepeatType.WEEKLY, reminder.repeat)
+        assertEquals(listOf(1, 4), reminder.daysOfWeek)
         assertEquals(1320, reminder.dndStart)
         assertEquals(420, reminder.dndEnd)
         assertEquals(false, reminder.enabled)

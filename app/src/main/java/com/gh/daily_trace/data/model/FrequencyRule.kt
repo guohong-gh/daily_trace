@@ -17,7 +17,11 @@ data class FrequencyRule(
     val daysOfWeek: List<Int> = emptyList(),
     /** type=TIMES_PER_MONTH 时生效 */
     val timesPerMonth: Int? = null,
-    /** 目标值，如每周 3 次 / 每天 30 分钟 */
+    /** type=CUSTOM 时生效：每隔 N 天记一次（1..90） */
+    val intervalDays: Int? = null,
+    /** type=CUSTOM 时的锚点日（epochDay）：自该日起按 intervalDays 计期望日 */
+    val anchorEpochDay: Long? = null,
+    /** 目标值，如每周 3 次 / 每天 30 分钟（预留字段，暂无编辑入口） */
     val targetValue: Double? = null,
     /** 允许跳过（请假/休息日），连续打卡不因跳过中断 */
     val allowSkip: Boolean = true,

@@ -36,6 +36,7 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 | M5 备份 | 导出/导入、自动备份、备份规则定制 | ✅ 完成（103 用例全绿；模拟器验收通过） |
 | M6 发布 | release 构建 + R8 验证、测试补强、lint | ✅ 完成（release 装机运行；lint 错误清零） |
 | UI 优化 | 品牌主题、通用组件库、九屏空态/反馈/校验统一（仅 UI 层） | ✅ 完成（103 用例全绿；lint 无错误；模拟器走查截图 ui2-*） |
+| M7-1 频率规则 | 频率规则编辑 UI、CUSTOM 统计口径、提醒星期拆分、DB v1→v2 迁移 | ✅ 完成（105 用例全绿；模拟器走查截图 m7-01..05；其余 M7 项与矩阵见 docs/spec-gap.md） |
 
 M1 验收标准：新建 4 类型选项 → 各自打卡 → 杀进程重启数据完整；MultiRecordRule 三种规则行为有单测。
 自动化部分已达成（40 用例全绿 + APK 构建成功）；模拟器（Medium_Phone_API_37.0）手动验收通过（见第八节）。
@@ -57,7 +58,7 @@ M3 交付细节：
 - 动作（`reminder/ReminderActionReceiver`）：布尔型「打卡」直写今日记录（幂等：已有 DONE 则跳过）；「稍后 N 分钟」排一次性闹钟；点击通知本体打开应用（D15）。
 - 重排：`ReminderBootReceiver` 监听开机/时间变更/时区变更/应用更新；应用启动时全量重排一次（覆盖强制停止等场景）。
 - 编辑页「提醒」区块：启用开关、时刻选择（Material3 TimePicker 24h）、每天/工作日/每周（周几多选）、免打扰时段、通知与精确闹钟权限提示与引导。
-- WEEKLY 的重复日存入 `FrequencyRule.daysOfWeek`（提醒为消费方，M4 统计可共用）。
+- WEEKLY 的重复日存入 `Reminder.daysOfWeek`（M7-1 起与频率规则解耦；此前借用 FrequencyRule.daysOfWeek，见 D23）。
 
 M4 验收标准：完成率/连续/趋势与真实数据一致（含补卡、跳过日）；范围切换（本周/本月/近30天）与周/月趋势切换正确；打卡后统计实时刷新。
 自动化部分已达成（新增 20 用例：StatsCalculator 18、M4Flow 2；合计 99 全绿）；模拟器手动验收通过（见第八节）。
@@ -102,6 +103,9 @@ M6 发布（交付细节）：
 | D16 | 2026-10-17 | 统计口径：期望日 = DAILY/CUSTOM/无规则取每天、DAYS_OF_WEEK 取所选周几、TIMES_PER_MONTH 无日级期望（改用月度配额进度）；跳过日（SKIPPED 记录或 allowSkip+skipDates）不计期望也不中断连续；PARTIAL 计完成受 partialCountsAsDone；今天未打卡宽限不中断；所有函数按 itemId 隔离 | `domain/stats/StatsCalculator`，18 用例覆盖；范围「近30天」= today-29..today |
 | D17 | 2026-10-17 | 备份：JSON v1 全表快照（org.json 手写编解码，不引入 kotlinx-serialization）；导入 = 单事务全量覆盖 + 先校验后写入；自动备份用应用生命周期触发（启动/退后台检查到期），不引入 WorkManager 后台任务；本机保留 5 份，SAF 负责用户位置选择 | `backup/` 三件套；未加密（encryption 字段保留未实现，待需求） |
 | D18 | 2026-10-17 | release 本机验收暂用调试签名（与 debug 同钥匙串，便于覆盖安装）；正式分发前替换独立签名 | `app/build.gradle.kts` release.signingConfig = debug |
+| D22 | 2026-10-17 | 应用名改回「日迹」（M11 执行） | 用户拍板；改 strings.xml 显示名，包名保持 com.gh.daily_trace |
+| D23 | 2026-10-17 | 提醒每周天数拆分到 `Reminder.daysOfWeek`；DB v1→v2 迁移时把旧 WEEKLY 提醒的星期从频率规则复制过来 | 原共享 `FrequencyRule.daysOfWeek`，编辑频率或提醒会互相覆盖并污染统计口径（M7-1） |
+| D24 | 2026-10-17 | CUSTOM 频率 = 每隔 N 天（1..90），锚点 = 保存当天；修改 N 时锚点重置为今天，其他编辑保留；缺参数退化为每天 | 语义可确定、可统计（M7-1，`StatsCalculator.isExpectedDay`） |
 
 ## 五、假设（因需求文档缺失而采用）
 
@@ -130,12 +134,12 @@ M6 发布（交付细节）：
 | P2 | 无 UI 自动化测试（依赖模拟器手工验收脚本） | 后续评估 Compose UI Test（M6 已补 lint/release 验证） |
 | P3 | 「稍后」一次性闹钟在设备重启后丢失（系列提醒会由开机接收器重排） | 接受；如需保留再持久化 snooze 状态 |
 | P3 | 提醒时刻按 AppSettings.timezone 解释；设备系统时区与设置不一致时视觉上有时区偏移 | 真实用户默认一致；后续设置页可加时区选择 |
-| P2 | skipDates / allowSkip 已参与统计（跳过不计期望、不中断连续），但尚无 UI 登记入口（数据层与测试已具备） | 日期详情页后续提供「登记休息日」 |
-| P3 | 统计口径中 CUSTOM 频率按「每天」处理；TIMES_PER_MONTH 仅月度配额进度 | 需求明确后再细化 |
+| P2 | skipDates 已参与统计（跳过不计期望、不中断连续），但尚无 UI 登记入口；allowSkip 开关已在编辑页（M7-1） | 日期详情页后续提供「登记休息日」（M7-3） |
+| P3 | TIMES_PER_MONTH 仅月度配额进度；「每周 N 次」目标未支持（CUSTOM 已在 M7-1 落地「每隔 N 天」语义） | 需求明确后再细化（M10+） |
 | P3 | lint 余留警告 17 条：UnusedResources 7、GradleDependency 6、InlinedApi 2、RedundantLabel 1、NewerVersionAvailable 1 | 不影响发布；发版前可按需清理 |
 | P3 | release 暂用调试签名；`AppSettings.encryption` 字段未实现（备份为明文 JSON） | 正式分发前替换签名；加密需求明确后再做 |
 | P3 | `androidx.work:work-runtime` 已引入但未使用（自动备份改用应用生命周期触发） | 后续做后台定时或移除依赖 |
-| P3 | 应用名已改为「每日打卡」（M6）；包名保持 com.gh.daily_trace | 如需统一改名再处理 |
+| P3 | 应用名当前为「每日打卡」（M6）；按 D22 将在 M11 改回「日迹」，包名保持 com.gh.daily_trace | M11 执行 |
 
 ## 八、验收记录（模拟器 Medium_Phone_API_37.0，2026-10-17）
 
@@ -219,3 +223,20 @@ M6 手动验收（通过）：
 - 模拟器演示数据中的选项无 emoji 图标（历史数据），徽章显示为「•」；在编辑页填入图标后即正常。
 - 导出/导入仍使用系统 SAF 原生交互与确认弹窗，未做自定义样式（原生一致性优先）。
 - 日期详情「清除」备注按钮沿用原逻辑（清空并立即保存）。
+
+## 十、M7-1 频率规则编辑批次（2026-10-17）
+
+范围：任务书 M7 第 1 项——频率规则编辑 UI（每天 / 每周几 / 每月几次 / 自定义）；其余 M7 项（状态录入、休息日登记、统计总量、日历圆点）留待后续批次，进度矩阵见 `docs/spec-gap.md`。
+
+交付内容：
+1. 编辑页新增「频率规则」卡片（`ui/itemedit/`）：类型 4 个 chips + 条件输入——每周几（7 天多选，默认预选今天）、每月几次（1-31，默认 3）、自定义间隔（1-90，默认 2）；「允许跳过/请假」开关；保存校验（每周几至少一天、数字越界行内报错）。
+2. CUSTOM 语义落地（D24）：每隔 N 天、锚点=保存当天；改 N 时锚点重置为今天、其他编辑保留锚点；缺参数（旧数据/异常导入）退化为每天。`StatsCalculator.isExpectedDay` 新增 CUSTOM 分支（锚点前不计期望）。
+3. 提醒星期拆分（D23）：`Reminder.daysOfWeek` 新字段；编辑页提醒区块读写提醒自身字段；`ReminderScheduler` 不再读频率规则。理由：原共享字段会在「频率=每周几」与「提醒=每周」并存时互相覆盖并污染统计口径。
+4. DB v1→v2（`DailyTraceDatabase.MIGRATION_1_2`）：`frequency_rules` + `intervalDays`/`anchorEpochDay`；`reminders` + `daysOfWeek TEXT NOT NULL DEFAULT ''`，并把旧 WEEKLY 提醒的星期从对应频率规则复制过来；`app/schemas/.../2.json` 已导出。
+5. 备份 JSON 扩展：规则 intervalDays/anchorEpochDay、提醒 daysOfWeek（均为可选字段，旧备份兼容；format VERSION 保持 1）。
+
+验证：
+- `testDebugUnitTest` 105/105 全绿（新增：CUSTOM 按间隔与锚点计期望日、CUSTOM 缺参数退化每天；更新：提醒调度独立性回归、数据库/备份新字段 roundtrip）。
+- `lintDebug` 无错误（17 条警告与基线一致，无新增）；`assembleRelease`（R8）成功，release 包 1.9MB 覆盖安装冒烟通过（截图 m7-06）。
+- `assembleDebug` 成功；模拟器覆盖安装旧库（v1 真实数据）→ 迁移成功：4 选项 / 4 条记录 / 旧提醒完好，logcat 无 FATAL / SQLiteException。
+- 走查截图 `docs/screenshots/m7-01..05`：四种类型切换与条件 UI、保存后重进回显。拉库校验：`frequency_rules`(Dur1) = DAYS_OF_WEEK `1,3,5`；`reminders`(Dur1) = WEEKLY `1,6`；提醒与频率星期互不影响。

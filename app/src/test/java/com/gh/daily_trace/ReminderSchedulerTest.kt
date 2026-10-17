@@ -111,11 +111,14 @@ class ReminderSchedulerTest {
     }
 
     @Test
-    fun `每周提醒按所选周几跳到下周一`() = runBlocking {
+    fun `每周提醒按提醒自身的周几跳到下周一`() = runBlocking {
         val itemId = insertItem()
-        repo.saveReminder(Reminder(itemId = itemId, time = 8 * 60, repeat = RepeatType.WEEKLY))
+        repo.saveReminder(
+            Reminder(itemId = itemId, time = 8 * 60, repeat = RepeatType.WEEKLY, daysOfWeek = listOf(1))
+        )
+        // 频率规则设为周五：验证提醒不再读取频率规则的星期（两字段相互独立）
         repo.saveFrequency(
-            FrequencyRule(itemId = itemId, type = FrequencyType.DAYS_OF_WEEK, daysOfWeek = listOf(1))
+            FrequencyRule(itemId = itemId, type = FrequencyType.DAYS_OF_WEEK, daysOfWeek = listOf(5))
         )
 
         scheduler().scheduleNext(repo.getReminderOf(itemId)!!)

@@ -62,6 +62,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.gh.daily_trace.data.model.CheckType
+import com.gh.daily_trace.data.model.FrequencyType
 import com.gh.daily_trace.data.model.MultiRecordRule
 import com.gh.daily_trace.data.model.RepeatType
 import com.gh.daily_trace.di.Container
@@ -241,6 +242,124 @@ fun ItemEditScreen(viewModel: ItemEditViewModel, onBack: () -> Unit) {
                     placeholder = { Text("每次打卡自动带上，例如：晨跑") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            SectionCard(title = "频率规则") {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FrequencyType.entries.forEach { t ->
+                        FilterChip(
+                            selected = state.freqType == t,
+                            onClick = {
+                                viewModel.update { s ->
+                                    s.copy(
+                                        freqType = t,
+                                        freqDays = if (t == FrequencyType.DAYS_OF_WEEK && s.freqDays.isEmpty()) {
+                                            listOf(LocalDate.now().dayOfWeek.value)
+                                        } else {
+                                            s.freqDays
+                                        },
+                                        freqTimesPerMonth = if (t == FrequencyType.TIMES_PER_MONTH && s.freqTimesPerMonth.isBlank()) {
+                                            "3"
+                                        } else {
+                                            s.freqTimesPerMonth
+                                        },
+                                        freqIntervalDays = if (t == FrequencyType.CUSTOM && s.freqIntervalDays.isBlank()) {
+                                            "2"
+                                        } else {
+                                            s.freqIntervalDays
+                                        },
+                                    )
+                                }
+                            },
+                            label = { Text(freqTypeLabel(t)) },
+                        )
+                    }
+                }
+
+                when (state.freqType) {
+                    FrequencyType.DAILY -> Text(
+                        "每天记一次；未完成的日子计入完成率。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    FrequencyType.DAYS_OF_WEEK -> Column {
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            WEEKDAY_LABELS.forEachIndexed { index, label ->
+                                val day = index + 1
+                                FilterChip(
+                                    selected = day in state.freqDays,
+                                    onClick = {
+                                        viewModel.update { s ->
+                                            s.copy(
+                                                freqDays = if (day in s.freqDays) {
+                                                    s.freqDays - day
+                                                } else {
+                                                    (s.freqDays + day).sorted()
+                                                },
+                                            )
+                                        }
+                                    },
+                                    label = { Text(label) },
+                                )
+                            }
+                        }
+                        Text(
+                            "只在这些星期几计入完成率。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    FrequencyType.TIMES_PER_MONTH -> {
+                        val invalid = state.freqTimesPerMonth.trim().toIntOrNull() !in 1..31
+                        OutlinedTextField(
+                            value = state.freqTimesPerMonth,
+                            onValueChange = { v ->
+                                viewModel.update { it.copy(freqTimesPerMonth = v.filter { c -> c.isDigit() }.take(2)) }
+                            },
+                            label = { Text("每月目标次数") },
+                            isError = invalid,
+                            supportingText = {
+                                Text(if (invalid) "请输入 1-31 的整数" else "每月完成 N 天即达标，不按日计完成率")
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    FrequencyType.CUSTOM -> {
+                        val invalid = state.freqIntervalDays.trim().toIntOrNull() !in 1..90
+                        OutlinedTextField(
+                            value = state.freqIntervalDays,
+                            onValueChange = { v ->
+                                viewModel.update { it.copy(freqIntervalDays = v.filter { c -> c.isDigit() }.take(2)) }
+                            },
+                            label = { Text("间隔天数 N") },
+                            isError = invalid,
+                            supportingText = {
+                                Text(if (invalid) "请输入 1-90 的整数" else "从今天起每隔 N 天记一次；修改 N 后从今天重新起算")
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                SwitchRow(
+                    title = "允许跳过/请假",
+                    subtitle = "标记为跳过的日子不计入完成率，也不中断连续打卡",
+                    checked = state.allowSkip,
+                    onCheckedChange = { v -> viewModel.update { it.copy(allowSkip = v) } },
                 )
             }
 
@@ -594,4 +713,11 @@ private fun ruleLabel(rule: MultiRecordRule): String = when (rule) {
     MultiRecordRule.MERGE -> "合并一条"
     MultiRecordRule.ACCUMULATE -> "累加"
     MultiRecordRule.KEEP_MULTIPLE -> "保留多条"
+}
+
+private fun freqTypeLabel(type: FrequencyType): String = when (type) {
+    FrequencyType.DAILY -> "每天"
+    FrequencyType.DAYS_OF_WEEK -> "每周几"
+    FrequencyType.TIMES_PER_MONTH -> "每月几次"
+    FrequencyType.CUSTOM -> "自定义"
 }

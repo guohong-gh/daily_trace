@@ -5,11 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckType
 import com.gh.daily_trace.data.model.FrequencyRule
+import com.gh.daily_trace.data.model.FrequencyType
 import com.gh.daily_trace.data.model.Group
 import com.gh.daily_trace.data.model.MultiRecordRule
 import com.gh.daily_trace.data.model.Reminder
 import com.gh.daily_trace.data.model.RepeatType
 import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.domain.time.DayClock
 import com.gh.daily_trace.reminder.ReminderScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +31,13 @@ data class ItemEditState(
     val defaultNote: String = "",
     val groupId: Long? = null,
     val rule: MultiRecordRule = MultiRecordRule.KEEP_MULTIPLE,
+    // 频率规则
+    val freqType: FrequencyType = FrequencyType.DAILY,
+    /** ISO 1=周一..7=周日，DAYS_OF_WEEK 时生效 */
+    val freqDays: List<Int> = emptyList(),
+    val freqTimesPerMonth: String = "",
+    val freqIntervalDays: String = "",
+    val allowSkip: Boolean = true,
     val enabled: Boolean = true,
     val archived: Boolean = false,
     // 提醒
@@ -91,10 +100,15 @@ class ItemEditViewModel(
                     rule = item.multiRecordRule,
                     enabled = item.enabled,
                     archived = item.archived,
+                    freqType = rule?.type ?: FrequencyType.DAILY,
+                    freqDays = rule?.daysOfWeek.orEmpty(),
+                    freqTimesPerMonth = rule?.timesPerMonth?.toString() ?: "",
+                    freqIntervalDays = rule?.intervalDays?.toString() ?: "",
+                    allowSkip = rule?.allowSkip ?: true,
                     reminderEnabled = reminder?.enabled == true,
                     reminderTime = reminder?.time ?: 8 * 60,
                     reminderRepeat = reminder?.repeat ?: RepeatType.DAILY,
-                    reminderDays = rule?.daysOfWeek.orEmpty(),
+                    reminderDays = reminder?.daysOfWeek.orEmpty(),
                     reminderSnooze = reminder?.snooze ?: 10,
                     dndEnabled = reminder?.dndStart != null && reminder.dndEnd != null,
                     dndStart = reminder?.dndStart ?: 22 * 60,
@@ -123,6 +137,21 @@ class ItemEditViewModel(
         if (s.reminderEnabled && s.reminderRepeat == RepeatType.WEEKLY && s.reminderDays.isEmpty()) {
             update { it.copy(error = "请选择每周的提醒日") }
             return
+        }
+        when (s.freqType) {
+            FrequencyType.DAYS_OF_WEEK -> if (s.freqDays.isEmpty()) {
+                update { it.copy(error = "请选择每周的打卡日") }
+                return
+            }
+            FrequencyType.TIMES_PER_MONTH -> if (s.freqTimesPerMonth.trim().toIntOrNull() !in 1..31) {
+                update { it.copy(error = "每月次数需为 1-31 的整数") }
+                return
+            }
+            FrequencyType.CUSTOM -> if (s.freqIntervalDays.trim().toIntOrNull() !in 1..90) {
+                update { it.copy(error = "间隔天数需为 1-90 的整数") }
+                return
+            }
+            FrequencyType.DAILY -> Unit
         }
 
         viewModelScope.launch {
@@ -167,12 +196,13 @@ class ItemEditViewModel(
                 resolvedId = itemId
             }
             applyReminder(resolvedId, s, now)
+            applyFrequency(resolvedId, s, now)
             scheduler.rescheduleAll()
             _state.value = _state.value.copy(done = true)
         }
     }
 
-    /** 保存提醒设置：启用则 upsert；禁用则删除并取消闹钟。WEEKLY 的天数写入频率规则。 */
+    /** 保存提醒设置：启用则 upsert；禁用则删除并取消闹钟。WEEKLY 的天数随提醒自身存储。 */
     private suspend fun applyReminder(resolvedItemId: Long, s: ItemEditState, now: Long) {
         val existing = repository.getReminderOf(resolvedItemId)
         if (!s.reminderEnabled) {
@@ -188,6 +218,7 @@ class ItemEditViewModel(
                 itemId = resolvedItemId,
                 time = s.reminderTime.coerceIn(0, 1439),
                 repeat = s.reminderRepeat,
+                daysOfWeek = s.reminderDays.distinct().sorted(),
                 enabled = true,
                 snooze = s.reminderSnooze.coerceIn(1, 1440),
                 dndStart = if (s.dndEnabled) s.dndStart.coerceIn(0, 1439) else null,
@@ -195,13 +226,37 @@ class ItemEditViewModel(
                 updatedAt = now,
             )
         )
-        if (s.reminderRepeat == RepeatType.WEEKLY) {
-            val rule = repository.getFrequencyOf(resolvedItemId)
-                ?: FrequencyRule(itemId = resolvedItemId)
-            repository.saveFrequency(
-                rule.copy(daysOfWeek = s.reminderDays.distinct().sorted(), updatedAt = now)
-            )
+    }
+
+    /** 保存频率规则。CUSTOM 锚点：新建或间隔变化时重置为今天，否则保留原锚点。 */
+    private suspend fun applyFrequency(resolvedItemId: Long, s: ItemEditState, now: Long) {
+        val existing = repository.getFrequencyOf(resolvedItemId)
+        val interval = s.freqIntervalDays.trim().toIntOrNull()
+        val anchor = when {
+            s.freqType != FrequencyType.CUSTOM -> existing?.anchorEpochDay
+            existing != null && existing.type == FrequencyType.CUSTOM &&
+                existing.intervalDays == interval && existing.anchorEpochDay != null -> existing.anchorEpochDay
+            else -> DayClock.from(repository.getSettings()).today()
         }
+        repository.saveFrequency(
+            FrequencyRule(
+                id = existing?.id ?: 0,
+                itemId = resolvedItemId,
+                type = s.freqType,
+                daysOfWeek = s.freqDays.distinct().sorted(),
+                timesPerMonth = if (s.freqType == FrequencyType.TIMES_PER_MONTH) {
+                    s.freqTimesPerMonth.trim().toIntOrNull()
+                } else {
+                    existing?.timesPerMonth
+                },
+                intervalDays = if (s.freqType == FrequencyType.CUSTOM) interval else existing?.intervalDays,
+                anchorEpochDay = anchor,
+                targetValue = existing?.targetValue,
+                allowSkip = s.allowSkip,
+                skipDates = existing?.skipDates.orEmpty(),
+                updatedAt = now,
+            )
+        )
     }
 
     /** 页面回前台时刷新权限状态（用于提示与引导按钮） */

@@ -57,6 +57,40 @@ class StatsCalculatorTest {
     }
 
     @Test
+    fun `CUSTOM按间隔与锚点计期望日`() {
+        val custom = FrequencyRule(
+            itemId = 1,
+            type = FrequencyType.CUSTOM,
+            intervalDays = 2,
+            anchorEpochDay = today - 4,
+        )
+        assertTrue(StatsCalculator.isExpectedDay(today - 4, custom)) // 锚点日
+        assertFalse(StatsCalculator.isExpectedDay(today - 3, custom))
+        assertTrue(StatsCalculator.isExpectedDay(today - 2, custom))
+        assertFalse(StatsCalculator.isExpectedDay(today - 1, custom))
+        assertTrue(StatsCalculator.isExpectedDay(today, custom))
+        assertFalse(StatsCalculator.isExpectedDay(today - 5, custom)) // 锚点之前不算期望
+    }
+
+    @Test
+    fun `CUSTOM缺参数时退化为每天且完成率按期望日计算`() {
+        val broken = FrequencyRule(itemId = 1, type = FrequencyType.CUSTOM)
+        assertTrue(StatsCalculator.isExpectedDay(today, broken))
+        assertTrue(StatsCalculator.isExpectedDay(today - 10, broken))
+
+        val custom = FrequencyRule(
+            itemId = 1,
+            type = FrequencyType.CUSTOM,
+            intervalDays = 2,
+            anchorEpochDay = today - 4,
+        )
+        val records = byDay(rec(today - 4), rec(today))
+        val r = StatsCalculator.rate(1, custom, records, today - 4, today, partialCountsAsDone = true)
+        assertEquals(2, r.doneDays)
+        assertEquals(3, r.expectedDays) // today-4 / today-2 / today
+    }
+
+    @Test
     fun `跳过记录与跳过日都不中断且不计期望`() {
         val rule = FrequencyRule(itemId = 1, type = FrequencyType.DAILY, allowSkip = true, skipDates = listOf(today - 1))
         val records = byDay(rec(today - 2), rec(today - 1, RecordStatus.SKIPPED), rec(today))

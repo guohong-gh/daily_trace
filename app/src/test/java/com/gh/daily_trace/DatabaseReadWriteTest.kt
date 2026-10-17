@@ -174,10 +174,13 @@ class DatabaseReadWriteTest {
         db.reminderDao().upsert(
             Reminder(itemId = itemId, time = 9 * 60, repeat = RepeatType.DAILY, snooze = 10, dndStart = 22 * 60, dndEnd = 7 * 60)
         )
-        // 同一选项再次保存覆盖，不产生第二条
-        db.reminderDao().upsert(Reminder(itemId = itemId, time = 10 * 60, repeat = RepeatType.WEEKDAYS))
+        // 同一选项再次保存覆盖，不产生第二条；每周提醒的星期随提醒存储
+        db.reminderDao().upsert(
+            Reminder(itemId = itemId, time = 10 * 60, repeat = RepeatType.WEEKLY, daysOfWeek = listOf(1, 3))
+        )
         assertEquals(1, db.reminderDao().getAll().size)
         assertEquals(10 * 60, db.reminderDao().getForItem(itemId)!!.time)
+        assertEquals(listOf(1, 3), db.reminderDao().getForItem(itemId)!!.daysOfWeek)
 
         // 暂停/启用
         db.reminderDao().setEnabled(itemId, false)
@@ -197,6 +200,15 @@ class DatabaseReadWriteTest {
         assertEquals(listOf(1, 3, 5), rule.daysOfWeek)
         assertEquals(listOf(20698L, 20699L), rule.skipDates)
         assertEquals(FrequencyType.DAYS_OF_WEEK, rule.type)
+
+        // CUSTOM：间隔与锚点持久化（v2 迁移新增字段）
+        db.frequencyRuleDao().upsert(
+            rule.copy(type = FrequencyType.CUSTOM, intervalDays = 5, anchorEpochDay = 20735L)
+        )
+        val custom = db.frequencyRuleDao().getForItem(itemId)!!
+        assertEquals(FrequencyType.CUSTOM, custom.type)
+        assertEquals(5, custom.intervalDays)
+        assertEquals(20735L, custom.anchorEpochDay)
 
         db.reminderDao().deleteForItem(itemId)
         db.frequencyRuleDao().deleteForItem(itemId)

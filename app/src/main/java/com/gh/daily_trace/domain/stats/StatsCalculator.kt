@@ -38,8 +38,9 @@ data class PeriodStat(
 data class ItemRule(val itemId: Long, val rule: FrequencyRule?)
 
 /**
- * 统计口径（D16，见 docs/status-and-plan.md）：
- * - 期望日：DAILY / CUSTOM / 无规则 = 每天；DAYS_OF_WEEK = 所选周几；TIMES_PER_MONTH = 无日级期望（用月度配额）。
+ * 统计口径（D16/D24，见 docs/status-and-plan.md）：
+ * - 期望日：DAILY / 无规则 = 每天；DAYS_OF_WEEK = 所选周几；TIMES_PER_MONTH = 无日级期望（用月度配额）；
+ *   CUSTOM = 每隔 N 天（自锚点日起算，锚点之前不计期望）。
  * - 跳过：记录 status=SKIPPED，或 rule.allowSkip 且当天在 skipDates 中；跳过日不计入期望日，也不中断连续。
  * - 记录按 itemId 过滤（传入全局按日分组的记录也能正确处理各选项互不污染）。
  * - PARTIAL 是否算完成由 partialCountsAsDone 决定。
@@ -51,9 +52,16 @@ object StatsCalculator {
     fun isExpectedDay(epochDay: Long, rule: FrequencyRule?): Boolean {
         val dow = LocalDate.ofEpochDay(epochDay).dayOfWeek.value
         return when (rule?.type) {
-            null, FrequencyType.DAILY, FrequencyType.CUSTOM -> true
+            null, FrequencyType.DAILY -> true
             FrequencyType.DAYS_OF_WEEK -> dow in rule.daysOfWeek
             FrequencyType.TIMES_PER_MONTH -> false
+            FrequencyType.CUSTOM -> {
+                // 每隔 N 天（自锚点日起算）；缺参数（旧数据 / 异常导入）时退化为每天
+                val n = rule.intervalDays
+                val anchor = rule.anchorEpochDay
+                if (n == null || n <= 0 || anchor == null) true
+                else epochDay >= anchor && (epochDay - anchor) % n == 0L
+            }
         }
     }
 

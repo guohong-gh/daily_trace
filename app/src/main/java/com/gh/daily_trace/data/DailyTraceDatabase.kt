@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gh.daily_trace.data.dao.AppSettingsDao
 import com.gh.daily_trace.data.dao.CheckItemDao
@@ -38,7 +39,7 @@ import kotlinx.coroutines.launch
         FrequencyRule::class,
         AppSettings::class
     ],
-    version = 1,
+    version = 2,
     // 导出 schema 至 app/schemas，后续升级编写显式 Migration，不做隐式破坏性迁移
     exportSchema = true
 )
@@ -62,6 +63,26 @@ abstract class DailyTraceDatabase : RoomDatabase() {
                 instance ?: build(context).also { instance = it }
             }
 
+        /**
+         * v1 → v2（M7-1 频率规则编辑）：
+         * - frequency_rules 增加 intervalDays / anchorEpochDay（CUSTOM「每隔 N 天」）；
+         * - reminders 增加 daysOfWeek（每周提醒的星期几独立存储，不再借用频率规则的 daysOfWeek）。
+         *   旧数据迁移：此前 WEEKLY 提醒的星期保存在对应频率规则里，直接复制过来。
+         */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE frequency_rules ADD COLUMN intervalDays INTEGER")
+                db.execSQL("ALTER TABLE frequency_rules ADD COLUMN anchorEpochDay INTEGER")
+                db.execSQL("ALTER TABLE reminders ADD COLUMN daysOfWeek TEXT NOT NULL DEFAULT ''")
+                db.execSQL(
+                    "UPDATE reminders SET daysOfWeek = COALESCE((" +
+                        "SELECT frequency_rules.daysOfWeek FROM frequency_rules " +
+                        "WHERE frequency_rules.itemId = reminders.itemId), '') " +
+                        "WHERE repeat = 'WEEKLY' AND daysOfWeek = ''"
+                )
+            }
+        }
+
         private fun build(context: Context): DailyTraceDatabase {
             // onCreate 回调在数据库首次打开（build 返回之后）才触发，届时 db 已初始化
             lateinit var db: DailyTraceDatabase
@@ -70,6 +91,7 @@ abstract class DailyTraceDatabase : RoomDatabase() {
                 DailyTraceDatabase::class.java,
                 "daily_trace.db"
             )
+                .addMigrations(MIGRATION_1_2)
                 .addCallback(object : Callback() {
                     override fun onCreate(supportDb: SupportSQLiteDatabase) {
                         super.onCreate(supportDb)

@@ -121,6 +121,7 @@ object BackupCodec {
         put("itemId", r.itemId)
         put("time", r.time)
         put("repeat", r.repeat.name)
+        put("daysOfWeek", JSONArray(r.daysOfWeek))
         put("enabled", r.enabled)
         put("snooze", r.snooze)
         put("dndStart", r.dndStart ?: JSONObject.NULL)
@@ -145,6 +146,8 @@ object BackupCodec {
         put("type", rule.type.name)
         put("daysOfWeek", JSONArray(rule.daysOfWeek))
         put("timesPerMonth", rule.timesPerMonth ?: JSONObject.NULL)
+        put("intervalDays", rule.intervalDays ?: JSONObject.NULL)
+        put("anchorEpochDay", rule.anchorEpochDay ?: JSONObject.NULL)
         put("targetValue", rule.targetValue ?: JSONObject.NULL)
         put("allowSkip", rule.allowSkip)
         put("skipDates", JSONArray(rule.skipDates))
@@ -260,6 +263,7 @@ object BackupCodec {
         itemId = o.getLong("itemId"),
         time = o.getInt("time"),
         repeat = enumOr(o.str("repeat"), RepeatType.DAILY),
+        daysOfWeek = o.intList("daysOfWeek"),
         enabled = o.optBoolean("enabled", true),
         snooze = o.optInt("snooze", 10),
         dndStart = o.nullableInt("dndStart"),
@@ -284,6 +288,8 @@ object BackupCodec {
         type = enumOr(o.str("type"), FrequencyType.DAILY),
         daysOfWeek = o.intList("daysOfWeek"),
         timesPerMonth = o.nullableInt("timesPerMonth"),
+        intervalDays = o.nullableInt("intervalDays"),
+        anchorEpochDay = o.nullableLong("anchorEpochDay"),
         targetValue = o.nullableDouble("targetValue"),
         allowSkip = o.optBoolean("allowSkip", true),
         skipDates = o.longList("skipDates"),

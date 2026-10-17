@@ -40,8 +40,7 @@ class ReminderScheduler(
             cancel(reminder.id)
             return
         }
-        val rule = repository.getFrequencyOf(reminder.itemId)
-        if (reminder.repeat == RepeatType.WEEKLY && rule?.daysOfWeek.isNullOrEmpty()) {
+        if (reminder.repeat == RepeatType.WEEKLY && reminder.daysOfWeek.isEmpty()) {
             cancel(reminder.id)
             return
         }
@@ -52,7 +51,7 @@ class ReminderScheduler(
             zone = zone,
             timeMinutes = reminder.time,
             repeat = reminder.repeat,
-            daysOfWeek = rule?.daysOfWeek.orEmpty(),
+            daysOfWeek = reminder.daysOfWeek,
         )
         setAlarm(at.toEpochMilli(), firePendingIntent(reminder.id, reminder.itemId))
     }
