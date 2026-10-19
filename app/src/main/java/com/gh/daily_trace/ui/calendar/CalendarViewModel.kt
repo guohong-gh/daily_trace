@@ -12,6 +12,8 @@ import com.gh.daily_trace.data.repository.DailyTraceRepository
 import com.gh.daily_trace.domain.calendar.CalendarMarks
 import com.gh.daily_trace.domain.calendar.DayMarks
 import com.gh.daily_trace.domain.calendar.DaySummary
+import com.gh.daily_trace.domain.calendar.TimelineDay
+import com.gh.daily_trace.domain.calendar.TimelineFeed
 import com.gh.daily_trace.domain.calendar.WeekMatrix
 import com.gh.daily_trace.domain.calendar.WeekRow
 import com.gh.daily_trace.domain.calendar.YearGrid
@@ -30,8 +32,8 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 
-/** 日历页视图模式（M8：月/周/年，时间线后续批次接入） */
-enum class CalendarViewMode { MONTH, WEEK, YEAR }
+/** 日历页视图模式（M8：月/周/年/时间线） */
+enum class CalendarViewMode { MONTH, WEEK, YEAR, TIMELINE }
 
 /** 日历可翻月范围（D32）：1970-01 ~ 2100-12，边界停住不回绕 */
 val CALENDAR_MIN_MONTH: YearMonth = YearMonth.of(1970, 1)
@@ -85,6 +87,16 @@ fun yearToPage(year: Int): Int = year - CALENDAR_MIN_YEAR
 /** pager 页索引 → 年份 */
 fun pageToYear(page: Int): Int = CALENDAR_MIN_YEAR + page
 
+/** 时间线每次加载天数（D36） */
+const val TIMELINE_PAGE_DAYS = 30
+
+/** 时间线可回溯下限（与月/年视图同口径，1970-01-01） */
+val TIMELINE_FLOOR: Long = LocalDate.of(1970, 1, 1).toEpochDay()
+
+/** 时间线窗口起始日（含今天共 30 天，不早于 [TIMELINE_FLOOR]） */
+fun timelineWindowStart(today: Long): Long =
+    (today - (TIMELINE_PAGE_DAYS - 1)).coerceAtLeast(TIMELINE_FLOOR)
+
 data class CalendarUiState(
     val viewMode: CalendarViewMode = CalendarViewMode.MONTH,
     val title: String = "",
@@ -112,6 +124,14 @@ data class CalendarUiState(
     val yearTitle: String = "",
     /** 年热力图：值覆盖「当前年 ±1 年」，保证横滑相邻页有内容（D32 预取思路） */
     val yearGridsByYear: Map<Int, YearGrid> = emptyMap(),
+    /** 时间线：窗口内内容日倒序（D36） */
+    val timelineDays: List<TimelineDay> = emptyList(),
+    /** 时间线：窗口起始日（回「今天」时重置；UI 依据其增大判断回顶） */
+    val timelineOldest: Long = 0L,
+    /** 时间线：「加载更早」是否可用（更早无记录/备注时为 false） */
+    val timelineCanLoadEarlier: Boolean = false,
+    /** 时间线：回「今天」信号（+1 递增；UI 据此回到顶部） */
+    val timelineRecenter: Int = 0,
 )
 
 /**
@@ -120,6 +140,8 @@ data class CalendarUiState(
  * - 周视图（D34）：行=未删除且命中筛选的选项、列=周内 7 天，横滑/箭头换周；记录窗口为当前周 ±1 周；
  * - 年视图（D35）：行=年首周~年尾周、列=周内 7 天，强度=当日 DONE 去重项数分档，横滑/箭头换年；
  *   记录窗口为当前年 ±1 年，摘要只覆盖可见的当年；
+ * - 时间线（D36）：倒序日流（只列有内容的天），窗口 = 最近 30 天、每次「加载更早」再回溯 30 天；
+ *   数据窗口 = [窗口起始日, 今天]，更早是否还有内容由存在性查询判定；
  * - 筛选沿用今日页已应用视图的选项/分组范围（忽略日筛选，D31），数据变化实时刷新。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -153,6 +175,14 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
             override val notes: List<DayNote>,
             val year: Int,
         ) : WindowData
+
+        data class Timeline(
+            override val records: List<CheckRecord>,
+            override val notes: List<DayNote>,
+            val oldest: Long,
+            val newest: Long,
+            val hasOlder: Boolean,
+        ) : WindowData
     }
 
     private val month = MutableStateFlow(YearMonth.now())
@@ -160,6 +190,9 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
     private val weekStart = MutableStateFlow(DayOfWeek.MONDAY)
     private val weekAnchor = MutableStateFlow(DayClock.weekStartOf(today.value, DayOfWeek.MONDAY))
     private val yearAnchor = MutableStateFlow(LocalDate.ofEpochDay(today.value).year)
+    private val timelineOldest = MutableStateFlow(timelineWindowStart(today.value))
+    /** 时间线回「今天」信号（+1 递增；UI 据此回顶） */
+    private val timelineRecenter = MutableStateFlow(0)
     private val mode = MutableStateFlow(CalendarViewMode.MONTH)
     private val filterId = MutableStateFlow(-1L)
 
@@ -199,17 +232,35 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
         ) { records, notes -> WindowData.Year(records, notes, year) }
     }
 
+    private val timelineWindow: Flow<WindowData.Timeline> =
+        combine(timelineOldest, today) { oldest, newest -> oldest to newest }
+            .flatMapLatest { (oldest, newest) ->
+                combine(
+                    repository.observeRecordsBetween(oldest, newest),
+                    repository.observeDayNotesBetween(oldest, newest),
+                    repository.observeHasContentBefore(oldest),
+                ) { records, notes, hasOlder ->
+                    WindowData.Timeline(records, notes, oldest, newest, hasOlder)
+                }
+            }
+
     /** 仅订阅当前视图的数据窗口，避免非活动视图产生查询 */
     private val window: Flow<WindowData> = mode.flatMapLatest { viewMode ->
         when (viewMode) {
             CalendarViewMode.MONTH -> monthWindow
             CalendarViewMode.WEEK -> weekWindow
             CalendarViewMode.YEAR -> yearWindow
+            CalendarViewMode.TIMELINE -> timelineWindow
         }
     }
 
-    val uiState: StateFlow<CalendarUiState> = combine(window, core, today) { windowValue, coreValue, todayDay ->
-        buildState(windowValue, coreValue, todayDay)
+    val uiState: StateFlow<CalendarUiState> = combine(
+        window,
+        core,
+        today,
+        timelineRecenter,
+    ) { windowValue, coreValue, todayDay, recenter ->
+        buildState(windowValue, coreValue, todayDay, recenter)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CalendarUiState())
 
     init {
@@ -223,6 +274,7 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
             weekStart.value = clock.weekStart
             weekAnchor.value = clock.weekStartOf(todayDay)
             yearAnchor.value = LocalDate.ofEpochDay(todayDay).year
+            timelineOldest.value = timelineWindowStart(todayDay)
         }
     }
 
@@ -274,12 +326,18 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
         yearAnchor.value = value.coerceIn(CALENDAR_MIN_YEAR, CALENDAR_MAX_YEAR)
     }
 
+    /** 时间线：再加载更早 30 天（不早于 1970-01-01） */
+    fun loadEarlier() {
+        timelineOldest.value = (timelineOldest.value - TIMELINE_PAGE_DAYS)
+            .coerceAtLeast(TIMELINE_FLOOR)
+    }
+
     /** 已应用筛选视图的入口；-1 表示清除筛选 */
     fun setFilter(id: Long) {
         filterId.value = id
     }
 
-    /** 顶栏「今天」：月视图回当前月、周视图回本周、年视图回当年 */
+    /** 顶栏「今天」：月视图回当前月、周视图回本周、年视图回当年、时间线回最近 30 天 */
     fun backToToday() {
         when (mode.value) {
             CalendarViewMode.MONTH -> setMonth(YearMonth.from(LocalDate.ofEpochDay(today.value)))
@@ -298,6 +356,14 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
                 today.value = todayDay
                 yearAnchor.value = LocalDate.ofEpochDay(todayDay).year
             }
+            CalendarViewMode.TIMELINE -> viewModelScope.launch {
+                val settings = repository.getSettings()
+                val clock = DayClock.from(settings)
+                val todayDay = clock.today()
+                today.value = todayDay
+                timelineOldest.value = timelineWindowStart(todayDay)
+                timelineRecenter.value += 1
+            }
         }
     }
 
@@ -315,7 +381,7 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
         }
     }
 
-    private fun buildState(window: WindowData, core: Core, todayDay: Long): CalendarUiState {
+    private fun buildState(window: WindowData, core: Core, todayDay: Long, timelineRecenter: Int): CalendarUiState {
         val clock = DayClock.from(core.settings)
         val filterName = core.filter?.name?.ifBlank { "未命名视图" }
         return when (window) {
@@ -406,6 +472,30 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
                     yearAnchor = year,
                     yearTitle = "$year 年",
                     yearGridsByYear = grids,
+                )
+            }
+            is WindowData.Timeline -> {
+                val days = TimelineFeed.build(
+                    oldest = window.oldest,
+                    newest = window.newest,
+                    records = window.records,
+                    notes = window.notes,
+                    rules = core.rules,
+                    items = core.items,
+                    filter = core.filter,
+                )
+                CalendarUiState(
+                    viewMode = CalendarViewMode.TIMELINE,
+                    weekStart = clock.weekStart,
+                    summaries = days.associate { it.date to it.summary },
+                    today = todayDay,
+                    filterName = filterName,
+                    weekAnchor = weekAnchor.value,
+                    yearAnchor = yearAnchor.value,
+                    timelineDays = days,
+                    timelineOldest = window.oldest,
+                    timelineCanLoadEarlier = window.hasOlder,
+                    timelineRecenter = timelineRecenter,
                 )
             }
         }

@@ -17,6 +17,7 @@ import com.gh.daily_trace.data.model.FrequencyRule
 import com.gh.daily_trace.data.model.Group
 import com.gh.daily_trace.data.model.Reminder
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 /** 单一数据入口：封装各 DAO，向上层（ViewModel）暴露 Flow */
@@ -52,6 +53,12 @@ class DailyTraceRepository(
     fun observeRecordsOn(date: Long): Flow<List<CheckRecord>> = checkRecordDao.observeByDate(date)
     fun observeRecordsBetween(start: Long, end: Long): Flow<List<CheckRecord>> =
         checkRecordDao.observeBetween(start, end)
+
+    /** 时间线「加载更早」：date 之前是否还有记录或备注 */
+    fun observeHasContentBefore(date: Long): Flow<Boolean> = combine(
+        checkRecordDao.observeExistsBefore(date),
+        dayNoteDao.observeExistsBefore(date),
+    ) { hasRecords, hasNotes -> hasRecords || hasNotes }
 
     val allRecords: Flow<List<CheckRecord>> = checkRecordDao.observeAll()
     fun observeRecordsOfItem(itemId: Long): Flow<List<CheckRecord>> = checkRecordDao.observeByItem(itemId)

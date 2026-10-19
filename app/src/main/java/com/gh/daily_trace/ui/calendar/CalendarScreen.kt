@@ -12,6 +12,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -21,6 +22,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -75,6 +79,7 @@ import com.gh.daily_trace.domain.calendar.DayMarks
 import com.gh.daily_trace.domain.calendar.DaySummary
 import com.gh.daily_trace.domain.calendar.HeatRow
 import com.gh.daily_trace.domain.calendar.SummaryEntry
+import com.gh.daily_trace.domain.calendar.TimelineDay
 import com.gh.daily_trace.domain.calendar.WeekCellStatus
 import com.gh.daily_trace.domain.calendar.WeekRow
 import com.gh.daily_trace.domain.calendar.YearGrid
@@ -192,6 +197,13 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
                     onLongPressDate = { summaryDate = it },
                     modifier = Modifier.weight(1f),
                 )
+                CalendarViewMode.TIMELINE -> TimelineView(
+                    state = state,
+                    viewModel = viewModel,
+                    onOpenDate = onOpenDate,
+                    onLongPressDate = { summaryDate = it },
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
@@ -225,7 +237,12 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
 /** 视图 tab（M8）：点击切换、不横滑（横滑留给各视图自己的翻页） */
 @Composable
 private fun CalendarModeTabs(selected: CalendarViewMode, onSelect: (CalendarViewMode) -> Unit) {
-    val tabs = listOf(CalendarViewMode.MONTH to "月", CalendarViewMode.WEEK to "周", CalendarViewMode.YEAR to "年")
+    val tabs = listOf(
+        CalendarViewMode.MONTH to "月",
+        CalendarViewMode.WEEK to "周",
+        CalendarViewMode.YEAR to "年",
+        CalendarViewMode.TIMELINE to "时间线",
+    )
     PrimaryTabRow(selectedTabIndex = tabs.indexOfFirst { it.first == selected }.coerceAtLeast(0)) {
         tabs.forEach { (mode, label) ->
             Tab(
@@ -832,6 +849,141 @@ private fun YearLegend(summary: YearSummary?) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+// ---------- 时间线视图 ----------
+
+@Composable
+private fun TimelineView(
+    state: CalendarUiState,
+    viewModel: CalendarViewModel,
+    onOpenDate: (Long) -> Unit,
+    onLongPressDate: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val listState = rememberLazyListState()
+    // 回「今天」→ 回到顶部（token 递增触发）；「加载更早」只向下生长，保持当前位置
+    LaunchedEffect(state.timelineRecenter) {
+        if (state.timelineDays.isNotEmpty()) listState.scrollToItem(0)
+    }
+
+    if (state.timelineDays.isEmpty()) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = modifier.fillMaxWidth(),
+        ) {
+            Text(
+                "最近 $TIMELINE_PAGE_DAYS 天没有记录",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            TimelineFooter(
+                canLoadEarlier = state.timelineCanLoadEarlier,
+                onLoadEarlier = viewModel::loadEarlier,
+            )
+        }
+        return
+    }
+
+    LazyColumn(
+        state = listState,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 12.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        items(state.timelineDays, key = { it.date }) { day ->
+            TimelineDayCard(
+                day = day,
+                isToday = day.date == state.today,
+                onOpenDate = onOpenDate,
+                onLongPressDate = onLongPressDate,
+            )
+        }
+        item(key = "footer") {
+            TimelineFooter(
+                canLoadEarlier = state.timelineCanLoadEarlier,
+                onLoadEarlier = viewModel::loadEarlier,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimelineDayCard(
+    day: TimelineDay,
+    isToday: Boolean,
+    onOpenDate: (Long) -> Unit,
+    onLongPressDate: (Long) -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onLongClick = { onLongPressDate(day.date) },
+                onClick = { onOpenDate(day.date) },
+            ),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(dayLabel(day.date), style = MaterialTheme.typography.titleSmall)
+                if (isToday) {
+                    Spacer(Modifier.width(6.dp))
+                    StatusPill("今天", color = MaterialTheme.colorScheme.primary)
+                }
+                Spacer(Modifier.weight(1f))
+                if (day.summary.entries.isNotEmpty()) {
+                    Text(
+                        "${day.summary.entries.size} 条",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            day.summary.entries.forEach { entry -> SummaryEntryRow(entry) }
+            if (day.summary.skipNames.isNotEmpty()) {
+                Text(
+                    "休息日：${day.summary.skipNames.joinToString("、")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
+            day.summary.noteText?.let { note ->
+                Text(
+                    "备注：$note",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** 时间线底部：「加载更早」按钮 / 「已到最早记录」提示 */
+@Composable
+private fun TimelineFooter(canLoadEarlier: Boolean, onLoadEarlier: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+    ) {
+        if (canLoadEarlier) {
+            TextButton(onClick = onLoadEarlier) { Text("加载更早（$TIMELINE_PAGE_DAYS 天）") }
+        } else {
+            Text(
+                "已到最早记录",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 // ---------- 共用组件 ----------

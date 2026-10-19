@@ -20,6 +20,10 @@ interface CheckRecordDao {
     @Query("SELECT * FROM check_records WHERE date BETWEEN :start AND :end ORDER BY date ASC, createdAt ASC")
     fun observeBetween(start: Long, end: Long): Flow<List<CheckRecord>>
 
+    /** 时间线「加载更早」：date 之前是否还有记录（存在性判断，不拉数据） */
+    @Query("SELECT EXISTS(SELECT 1 FROM check_records WHERE date < :date)")
+    fun observeExistsBefore(date: Long): Flow<Boolean>
+
     @Query("SELECT * FROM check_records WHERE date BETWEEN :start AND :end ORDER BY date ASC, createdAt ASC")
     suspend fun getBetween(start: Long, end: Long): List<CheckRecord>
 

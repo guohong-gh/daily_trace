@@ -16,6 +16,10 @@ interface DayNoteDao {
     @Query("SELECT * FROM day_notes WHERE date BETWEEN :start AND :end ORDER BY date ASC")
     fun observeBetween(start: Long, end: Long): Flow<List<DayNote>>
 
+    /** 时间线「加载更早」：date 之前是否还有备注（存在性判断，不拉数据） */
+    @Query("SELECT EXISTS(SELECT 1 FROM day_notes WHERE date < :date)")
+    fun observeExistsBefore(date: Long): Flow<Boolean>
+
     @Query("SELECT * FROM day_notes WHERE date = :date")
     suspend fun getByDate(date: Long): DayNote?
 
