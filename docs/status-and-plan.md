@@ -1,6 +1,6 @@
 # 项目现状与实施计划
 
-> 更新时间：2026-10-17。本文档由技术负责人盘点后沉淀，随进展更新。
+> 更新时间：2026-10-19。本文档由技术负责人盘点后沉淀，随进展更新。
 
 ## 一、已确认事实（来自代码与构建产物）
 
@@ -36,7 +36,7 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 | M5 备份 | 导出/导入、自动备份、备份规则定制 | ✅ 完成（103 用例全绿；模拟器验收通过） |
 | M6 发布 | release 构建 + R8 验证、测试补强、lint | ✅ 完成（release 装机运行；lint 错误清零） |
 | UI 优化 | 品牌主题、通用组件库、九屏空态/反馈/校验统一（仅 UI 层） | ✅ 完成（103 用例全绿；lint 无错误；模拟器走查截图 ui2-*） |
-| M7-1 频率规则 | 频率规则编辑 UI、CUSTOM 统计口径、提醒星期拆分、DB v1→v2 迁移 | ✅ 完成（105 用例全绿；模拟器走查截图 m7-01..05；其余 M7 项与矩阵见 docs/spec-gap.md） |
+| M7 高频闭环（5 项） | 频率规则、状态录入、休息日登记、统计总量、日历标记 | ✅ 完成（127 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十至十三节） |
 
 M1 验收标准：新建 4 类型选项 → 各自打卡 → 杀进程重启数据完整；MultiRecordRule 三种规则行为有单测。
 自动化部分已达成（40 用例全绿 + APK 构建成功）；模拟器（Medium_Phone_API_37.0）手动验收通过（见第八节）。
@@ -110,6 +110,9 @@ M6 发布（交付细节）：
 | D26 | 2026-10-19 | 「部分完成」= 始终追加 `status=PARTIAL` 记录，不参与 MERGE/ACCUMULATE 合并目标 | 部分完成是过程量，合并语义模糊；合并目标只认最新一条 DONE，避免覆盖与状态污染（M7-2，`CheckInPlanner.latestDoneOf`） |
 | D27 | 2026-10-19 | 「计划中」仅限未来日期（`date > today`），同日同选项重复计划更新最近一条（upsert，`planAhead`）；`isBackfill=false`；布尔快速打卡与合并规则均忽略非 DONE 记录 | 与 D9 补卡窗口无冲突；防计划重复堆积；计划不干扰完成判定（M7-2，`BackfillPolicy.canPlan`） |
 | D28 | 2026-10-19 | 统计总量 = 全时段累计（不随范围切换）；次数只算 DONE（PARTIAL 单独计数）；量值合计含 DONE+PARTIAL（与今日页 totalValue 一致）；PLANNED/SKIPPED 不计；计数型「总次数」取数值合计；按 itemId 隔离 | 交付验收 11；落于 `StatsCalculator.totals`（M7-4） |
+| D29 | 2026-10-19 | 日历标记 = 逐选项快照色圆点：DONE/PARTIAL 产点、同项同日合一（色取当天最新一条记录）、按选项管理顺序、最多 4 个 +「+N」；PLANNED/SKIPPED 不产点、跳过日不单独标记；备注保留第三色点 | 与 D11（快照展示）、D25（跳过语义）一致；落于 `domain/calendar/CalendarMarks`（M7-5） |
+| D30 | 2026-10-19 | 长按日期 = 当日摘要对话框（快照名/值/状态 + 休息日名单 + 日期备注 + 「查看详情」）；无内容的空日不弹（长按等同点击） | 不新增页面层级；对话框与筛选联动后数据一致（M7-5） |
+| D31 | 2026-10-19 | 日历联动今日页「已应用筛选」仅取选项/分组范围（`FilterMatcher.itemMatches`），忽略 dayFilter；沿用 savedStateHandle 机制（D12）；日历页显示「筛选：xxx 标记已按筛选联动」指示条、清除仍在今日页 | 避免「未打卡」辅助筛选清空日历标记；一处应用全局可见（M7-5） |
 
 ## 五、假设（因需求文档缺失而采用）
 
@@ -274,3 +277,19 @@ M6 手动验收（通过）：
 - `lintDebug` 0 errors / 17 warnings（与基线一致，无新增）；`assembleRelease`（R8）成功，release 包 1.9MB 覆盖安装走查。
 - 模拟器走查（release 包）截图 `docs/screenshots/m7-16/17`：四项「累计」行——布尔=完成次数、计数=数值合计（1+3=4）、时长小时化（30+60=「1 小时 30 分」）、数值含部分完成注记（8.5+42=50.5）；切「近30天」完成率变化而累计不变（D28 全时段口径）。
 - 拉库校验（debug 包 + run-as，含 WAL）：`check_records` 聚合 = Bool1 DONE 1；Count1 DONE 4/4.0；Dur1 DONE 2/90.0；Val1 DONE 1/8.5 + PARTIAL 1/42.0（合计 50.5）；PLANNED 60.0 不计 —— 与界面一致。
+
+## 十三、M7-5 日历标记增强批次（2026-10-19）
+
+范围：任务书 M7 第 5 项——日历逐选项彩色圆点 + 「+N」、长按浮层、筛选实时联动标记。M7 全项收官，进度矩阵见 `docs/spec-gap.md`。
+
+交付内容：
+1. 领域纯函数 `domain/calendar/CalendarMarks`（D29/D31）：逐日圆点（DONE/PARTIAL 去重快照色、最多 4 个 + overflow 计数、备注标记）、逐日摘要（快照条目含类型/值/单位/状态、休息日名单、日期备注）；筛选只作用于选项/分组范围（忽略 dayFilter，选项已清除时按 `FilterMatcher` 空选择语义兜底）；备注为日级不受筛选影响。
+2. 日历页（`ui/calendar/`）：逐选项彩色圆点 +「+N」溢出；图例改为「已完成的选项（颜色对应选项）｜有备注」+「长按日期查看当日摘要」提示；长按日期弹当日摘要对话框（D30：快照徽章 + 部分完成/计划/跳过胶囊、布尔完成对勾、休息日行、「查看详情」跳日期详情）；有筛选时顶部显示「筛选：xxx 标记已按筛选联动」指示条。
+3. 联动机制（D31）：`AppNavHost` 的 CALENDAR 路由从 TODAY entry 的 savedStateHandle 读 `appliedFilterId`（沿用 D12 机制），经 `CalendarViewModel.setFilter` 接入；`getBackStackEntry` 以 NavBackStackEntry 作 remember key（lint 新规则）；日历页不提供清除（清除仍在今日页）。
+4. `CalendarViewModel`：items/frequencyRules/settings/filter 合并为 Core 流，`CalendarMarks.build` 输出 marks + summaries；打卡/备注/筛选任意变化实时刷新。
+
+验证：
+- `testDebugUnitTest` 127/127 全绿（新增 11：圆点同项合一与最新快照色/管理顺序、上限 4 + 溢出、PLANNED/SKIPPED 不产点但进摘要、PARTIAL 产点、仅备注日、跳过日名单与 allowSkip 门控、空日无标记无摘要、筛选按选项/分组/ANY/ALL 且忽略 dayFilter、休息日名单受筛选、已清除选项兜底、摘要快照字段与值/状态）。
+- `lintDebug` 0 errors / 17 warnings（与基线一致；期间修复 1 个新增错误：getBackStackEntry 的 remember key 需为 NavBackStackEntry）；`assembleRelease`（R8）成功，release 包 1.84MB。
+- 模拟器走查（debug 包 + run-as）截图 `docs/screenshots/m7-18..23`：逐选项圆点（19 日 3 点）；新增 Run1（蓝）/Read1（橙）打卡后多色 + 「+1」溢出；长按摘要对话框（快照徽章、部分完成胶囊、休息日 Dur1、布尔对勾、「查看详情」跳转日期详情）；筛选视图 RunRead 联动（19 日只剩蓝/橙、17 日仅剩备注点与指示条）；筛选态摘要只列命中项、无休息日行；清除筛选后恢复；空日长按不弹浮层。
+- 拉库校验（含 WAL）：Run1 `color=-15374912`、Read1 `color=-1086464`；20745 记录 = Count1 DONE×3 + Dur1 DONE 60 + Val1 PARTIAL 42 + Run1/Read1 DONE（5 项产点 → 4 圆点 +「+1」，与界面一致）；`filter_views` RunRead = SELECTED `5,6` ANY。

@@ -3,6 +3,7 @@ package com.gh.daily_trace.ui.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -82,9 +83,15 @@ fun AppNavHost(container: Container) {
         composable(AppRoutes.SETTINGS) {
             SettingsRoute(container = container, onBack = { navController.popBackStack() })
         }
-        composable(AppRoutes.CALENDAR) {
+        composable(AppRoutes.CALENDAR) { entry ->
+            // 日历标记联动今日页已应用的筛选（D31）：读 TODAY entry 的 savedStateHandle
+            val todayEntry = remember(entry) { navController.getBackStackEntry(AppRoutes.TODAY) }
+            val appliedFilterId by todayEntry.savedStateHandle
+                .getStateFlow("appliedFilterId", -1L)
+                .collectAsState()
             CalendarRoute(
                 container = container,
+                appliedFilterId = appliedFilterId,
                 onBack = { navController.popBackStack() },
                 onOpenDate = { date -> navController.navigate(AppRoutes.dateDetail(date)) },
             )
