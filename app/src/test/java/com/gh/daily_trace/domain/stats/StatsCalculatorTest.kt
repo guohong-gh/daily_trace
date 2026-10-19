@@ -187,6 +187,44 @@ class StatsCalculatorTest {
         assertEquals(3, StatsCalculator.monthlyQuotaProgress(1, records, today))
     }
 
+    // ---------- 聚合总量（D28） ----------
+
+    @Test
+    fun `总量只计DONE与PARTIAL且按itemId隔离`() {
+        val records = listOf(
+            rec(today, RecordStatus.DONE).copy(value = 2.0),
+            rec(today - 1, RecordStatus.PARTIAL).copy(value = 3.0),
+            rec(today - 2, RecordStatus.SKIPPED).copy(value = 9.0),
+            rec(today - 3, RecordStatus.PLANNED).copy(value = 9.0),
+            rec(today, RecordStatus.DONE, itemId = 2).copy(value = 100.0),
+        )
+        val totals = StatsCalculator.totals(1, records)
+        assertEquals(1, totals.doneCount)
+        assertEquals(1, totals.partialCount)
+        assertEquals(5.0, totals.valueSum, 1e-9)
+        assertFalse(totals.isEmpty)
+    }
+
+    @Test
+    fun `总量对布尔型空值记录计次数不计量值`() {
+        val records = listOf(
+            rec(today, RecordStatus.DONE), // 布尔型 value 为空
+            rec(today - 1, RecordStatus.DONE),
+        )
+        val totals = StatsCalculator.totals(1, records)
+        assertEquals(2, totals.doneCount)
+        assertEquals(0, totals.partialCount)
+        assertEquals(0.0, totals.valueSum, 1e-9)
+        assertFalse(totals.isEmpty)
+    }
+
+    @Test
+    fun `无记录时总量为空`() {
+        assertTrue(StatsCalculator.totals(1, emptyList()).isEmpty)
+        // 其他选项的记录不算本项总量
+        assertTrue(StatsCalculator.totals(1, listOf(rec(today, itemId = 2))).isEmpty)
+    }
+
     // ---------- 周/月趋势 ----------
 
     @Test

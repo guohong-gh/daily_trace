@@ -42,6 +42,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.gh.daily_trace.data.model.CheckType
 import com.gh.daily_trace.di.Container
 import com.gh.daily_trace.domain.stats.PeriodStat
 import com.gh.daily_trace.domain.stats.RateResult
@@ -50,6 +51,8 @@ import com.gh.daily_trace.ui.common.ItemBadge
 import com.gh.daily_trace.ui.common.LoadingState
 import com.gh.daily_trace.ui.common.SectionTitle
 import com.gh.daily_trace.ui.common.StatusPill
+import com.gh.daily_trace.ui.common.formatMinutes
+import com.gh.daily_trace.ui.common.formatValue
 import kotlin.math.roundToInt
 
 @Composable
@@ -253,8 +256,31 @@ private fun ItemStatCard(stat: ItemStat) {
                     StatusPill("连续 ${stat.streak.current} 天", color = MaterialTheme.colorScheme.primary)
                 }
             }
+            if (!stat.totals.isEmpty) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    totalsSummary(stat),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
+}
+
+/** 「累计」行文案（D28）：全时段累计，不随范围切换；计数型取数值合计，时长型分钟友好化；部分完成单独注记 */
+private fun totalsSummary(stat: ItemStat): String {
+    val totals = stat.totals
+    val unit = stat.item.unit
+    val base = when (stat.item.type) {
+        CheckType.BOOLEAN -> "累计完成 ${totals.doneCount} 次"
+        CheckType.COUNT -> "累计 ${formatValue(totals.valueSum)}${unit.ifBlank { "次" }}"
+        CheckType.DURATION ->
+            if (unit.isBlank() || unit == "分钟") "累计时长 ${formatMinutes(totals.valueSum)}"
+            else "累计 ${formatValue(totals.valueSum)}$unit"
+        CheckType.VALUE -> "累计 ${formatValue(totals.valueSum)}$unit"
+    }
+    return if (totals.partialCount > 0) "$base · 含部分完成 ${totals.partialCount} 次" else base
 }
 
 private fun formatRate(rate: RateResult): String =

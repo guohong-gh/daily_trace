@@ -10,6 +10,7 @@ import com.gh.daily_trace.data.model.FrequencyType
 import com.gh.daily_trace.data.repository.DailyTraceRepository
 import com.gh.daily_trace.domain.stats.DayOutcome
 import com.gh.daily_trace.domain.stats.ItemRule
+import com.gh.daily_trace.domain.stats.ItemTotals
 import com.gh.daily_trace.domain.stats.PeriodStat
 import com.gh.daily_trace.domain.stats.RateResult
 import com.gh.daily_trace.domain.stats.StatsCalculator
@@ -38,6 +39,8 @@ data class ItemStat(
     val item: CheckItem,
     val rate: RateResult,
     val streak: StreakResult,
+    /** 全时段聚合总量（D28：次数只算 DONE、量值含 PARTIAL） */
+    val totals: ItemTotals = ItemTotals(),
     /** TIMES_PER_MONTH：本月已完成天数与目标次数 */
     val isQuota: Boolean = false,
     val quotaDone: Int = 0,
@@ -127,6 +130,7 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
                     partialCountsAsDone = partial,
                     sinceDay = sinceDayOf(item, records, today),
                 ),
+                totals = StatsCalculator.totals(item.id, records),
                 isQuota = isQuota,
                 quotaDone = if (isQuota) StatsCalculator.monthlyQuotaProgress(item.id, recordsByDay, today) else 0,
                 quotaTarget = rule?.timesPerMonth ?: 0,

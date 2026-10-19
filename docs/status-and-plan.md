@@ -109,6 +109,7 @@ M6 发布（交付细节）：
 | D25 | 2026-10-19 | 「跳过」统一写 `rule.skipDates`（休息日/请假登记）；UI 不再新建 `status=SKIPPED` 记录（旧数据仍参与统计）；跳过登记不受补卡窗口限制，但受 allowSkip 门控 | 日级语义与统计口径一致（D16）；可撤销、不产生记录噪音；未来日期可提前登记请假（M7-3） |
 | D26 | 2026-10-19 | 「部分完成」= 始终追加 `status=PARTIAL` 记录，不参与 MERGE/ACCUMULATE 合并目标 | 部分完成是过程量，合并语义模糊；合并目标只认最新一条 DONE，避免覆盖与状态污染（M7-2，`CheckInPlanner.latestDoneOf`） |
 | D27 | 2026-10-19 | 「计划中」仅限未来日期（`date > today`），同日同选项重复计划更新最近一条（upsert，`planAhead`）；`isBackfill=false`；布尔快速打卡与合并规则均忽略非 DONE 记录 | 与 D9 补卡窗口无冲突；防计划重复堆积；计划不干扰完成判定（M7-2，`BackfillPolicy.canPlan`） |
+| D28 | 2026-10-19 | 统计总量 = 全时段累计（不随范围切换）；次数只算 DONE（PARTIAL 单独计数）；量值合计含 DONE+PARTIAL（与今日页 totalValue 一致）；PLANNED/SKIPPED 不计；计数型「总次数」取数值合计；按 itemId 隔离 | 交付验收 11；落于 `StatsCalculator.totals`（M7-4） |
 
 ## 五、假设（因需求文档缺失而采用）
 
@@ -137,7 +138,6 @@ M6 发布（交付细节）：
 | P2 | 无 UI 自动化测试（依赖模拟器手工验收脚本） | 后续评估 Compose UI Test（M6 已补 lint/release 验证） |
 | P3 | 「稍后」一次性闹钟在设备重启后丢失（系列提醒会由开机接收器重排） | 接受；如需保留再持久化 snooze 状态 |
 | P3 | 提醒时刻按 AppSettings.timezone 解释；设备系统时区与设置不一致时视觉上有时区偏移 | 真实用户默认一致；后续设置页可加时区选择 |
-| P2 | skipDates 已参与统计（跳过不计期望、不中断连续），但尚无 UI 登记入口；allowSkip 开关已在编辑页（M7-1） | 日期详情页后续提供「登记休息日」（M7-3） |
 | P3 | TIMES_PER_MONTH 仅月度配额进度；「每周 N 次」目标未支持（CUSTOM 已在 M7-1 落地「每隔 N 天」语义） | 需求明确后再细化（M10+） |
 | P3 | lint 余留警告 17 条：UnusedResources 7、GradleDependency 6、InlinedApi 2、RedundantLabel 1、NewerVersionAvailable 1 | 不影响发布；发版前可按需清理 |
 | P3 | release 暂用调试签名；`AppSettings.encryption` 字段未实现（备份为明文 JSON） | 正式分发前替换签名；加密需求明确后再做 |
@@ -260,4 +260,17 @@ M6 手动验收（通过）：
 - 模拟器走查（release 包）截图 `docs/screenshots/m7-07..15`：部分完成对话框与记录行胶囊、跳过今天与撤销、未来日期添加计划、选择器逐项跳过与摘要行、今日页「计划：」提示。
 - 拉库校验（debug 包 + run-as）：`check_records` (Val1) = `PARTIAL 42.0 @20745`、`PLANNED 60.0 @20746 isBackfill=0`；`frequency_rules`(Dur1) `skipDates='20745'`、`allowSkip=1`。
 
+## 十二、M7-4 统计总量批次（2026-10-19）
 
+范围：任务书 M7 第 4 项——统计总量（每项总次数 / 总时长 / 总数值）；剩余 M7 项（日历逐选项彩色圆点）留待后续批次，进度矩阵见 `docs/spec-gap.md`。
+
+交付内容：
+1. 口径（D28）：总量为全时段累计，不随范围切换；次数只算 DONE、PARTIAL 单独计数；量值合计（value 求和）含 DONE + PARTIAL，与今日页 `totalValue` 一致；PLANNED / SKIPPED 一律不计；按 itemId 隔离。
+2. 领域纯函数 `StatsCalculator.totals(itemId, records)` → `ItemTotals(doneCount, partialCount, valueSum, isEmpty)`。
+3. 统计页每项卡片新增「累计」行：布尔型「累计完成 N 次」（value 为空的布尔记录也计数）；计数型「累计 N{单位}」（单位空退化为「次」）；时长型单位为空或「分钟」时友好化为「X 小时 Y 分」（`Formatters.formatMinutes`），其余单位原样；数值型「累计 N{单位}」；存在部分完成时附注「含部分完成 N 次」；无 DONE/PARTIAL 记录时不占行。
+
+验证：
+- `testDebugUnitTest` 116/116 全绿（新增 3：DONE/PARTIAL/SKIPPED/PLANNED 混合聚合与 itemId 隔离、布尔空值记录只计次数、无记录时为空）。
+- `lintDebug` 0 errors / 17 warnings（与基线一致，无新增）；`assembleRelease`（R8）成功，release 包 1.9MB 覆盖安装走查。
+- 模拟器走查（release 包）截图 `docs/screenshots/m7-16/17`：四项「累计」行——布尔=完成次数、计数=数值合计（1+3=4）、时长小时化（30+60=「1 小时 30 分」）、数值含部分完成注记（8.5+42=50.5）；切「近30天」完成率变化而累计不变（D28 全时段口径）。
+- 拉库校验（debug 包 + run-as，含 WAL）：`check_records` 聚合 = Bool1 DONE 1；Count1 DONE 4/4.0；Dur1 DONE 2/90.0；Val1 DONE 1/8.5 + PARTIAL 1/42.0（合计 50.5）；PLANNED 60.0 不计 —— 与界面一致。

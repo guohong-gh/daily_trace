@@ -24,6 +24,18 @@ data class RateResult(val doneDays: Int, val expectedDays: Int) {
 
 data class StreakResult(val current: Int, val best: Int)
 
+/**
+ * 聚合总量（D28）：次数只算 DONE；量值合计含 PARTIAL（过程量计入投入，与今日页口径一致）。
+ * PLANNED / SKIPPED 一律不计。
+ */
+data class ItemTotals(
+    val doneCount: Int = 0,
+    val partialCount: Int = 0,
+    val valueSum: Double = 0.0,
+) {
+    val isEmpty: Boolean get() = doneCount == 0 && partialCount == 0 && valueSum == 0.0
+}
+
 data class PeriodStat(
     val label: String,
     val startDay: Long,
@@ -170,6 +182,32 @@ object StatsCalculator {
             d++
         }
         return days
+    }
+
+    /**
+     * 全时段聚合总量（D28）：次数只算 DONE，PARTIAL 单独计数；
+     * 量值合计含 DONE + PARTIAL（过程量计入投入，与今日页 totalValue 口径一致）；PLANNED / SKIPPED 一律不计。
+     * 传入全局记录也安全（内部按 itemId 过滤）。
+     */
+    fun totals(itemId: Long, records: List<CheckRecord>): ItemTotals {
+        var done = 0
+        var partial = 0
+        var sum = 0.0
+        for (record in records) {
+            if (record.itemId != itemId) continue
+            when (record.status) {
+                RecordStatus.DONE -> {
+                    done++
+                    sum += record.value ?: 0.0
+                }
+                RecordStatus.PARTIAL -> {
+                    partial++
+                    sum += record.value ?: 0.0
+                }
+                RecordStatus.SKIPPED, RecordStatus.PLANNED -> Unit
+            }
+        }
+        return ItemTotals(doneCount = done, partialCount = partial, valueSum = sum)
     }
 
     private fun aggregateDay(
