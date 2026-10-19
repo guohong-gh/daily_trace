@@ -1,7 +1,11 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.gh.daily_trace.ui.today
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,11 +22,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -71,8 +77,10 @@ import com.gh.daily_trace.ui.common.EmptyState
 import com.gh.daily_trace.ui.common.ItemBadge
 import com.gh.daily_trace.ui.common.RecordDialog
 import com.gh.daily_trace.ui.common.RecordStatusPill
+import com.gh.daily_trace.ui.common.SelectionActionBar
 import com.gh.daily_trace.ui.common.formatTarget
 import com.gh.daily_trace.ui.common.formatValue
+import com.gh.daily_trace.ui.common.rememberSelectedIds
 import com.gh.daily_trace.ui.common.timeFormatter
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -126,6 +134,42 @@ fun TodayScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    // 多选批量打卡（长按卡片进入）
+    var selecting by rememberSaveable { mutableStateOf(false) }
+    var selectedIds by rememberSelectedIds()
+    var batchValues by remember { mutableStateOf<Map<Long, Double?>?>(null) }
+
+    val exitSelection: () -> Unit = {
+        selecting = false
+        selectedIds = emptySet()
+        batchValues = null
+    }
+    BackHandler(enabled = selecting) { exitSelection() }
+
+    val selectableIds: Set<Long> = state.sections.flatMap { it.rows }
+        .filter { canBatch(it, batchValues) }
+        .map { it.item.id }
+        .toSet()
+    val allSelected = selectableIds.isNotEmpty() && selectableIds.all { it in selectedIds }
+
+    val enterSelection: (ItemRow) -> Unit = { row ->
+        selecting = true
+        selectedIds = setOf(row.item.id)
+        batchValues = null
+        scope.launch {
+            batchValues = viewModel.loadBatchValues(state.sections.flatMap { it.rows }.map { it.item.id }.toSet())
+        }
+    }
+    val toggleSelect: (ItemRow) -> Unit = { row ->
+        when {
+            row.item.id in selectedIds -> selectedIds = selectedIds - row.item.id
+            canBatch(row, batchValues) -> selectedIds = selectedIds + row.item.id
+            else -> scope.launch {
+                snackbarHostState.showSnackbar("「${row.item.name}」需先单笔记一次数值，暂不能批量")
+            }
+        }
+    }
+
     LifecycleResumeEffect(Unit) {
         viewModel.refreshToday()
         onPauseOrDispose { }
@@ -135,35 +179,81 @@ fun TodayScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text("今日打卡", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            state.dateLabel,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    if (selecting) {
+                        Text("已选 ${selectedIds.size} 项")
+                    } else {
+                        Column {
+                            Text("今日打卡", style = MaterialTheme.typography.titleLarge)
+                            Text(
+                                state.dateLabel,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    if (selecting) {
+                        IconButton(onClick = exitSelection) {
+                            Icon(Icons.Filled.Close, contentDescription = "退出多选")
+                        }
                     }
                 },
                 actions = {
-                    IconButton(onClick = onCalendar) {
-                        Icon(Icons.Filled.DateRange, contentDescription = "日历")
-                    }
-                    IconButton(onClick = onSearch) {
-                        Icon(Icons.Filled.Search, contentDescription = "搜索")
-                    }
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                    if (selecting) {
+                        TextButton(onClick = {
+                            selectedIds = if (allSelected) emptySet() else selectableIds
+                        }) {
+                            Text(if (allSelected) "取消全选" else "全选")
                         }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            MenuEntry("📊", "统计") { menuOpen = false; onStats() }
-                            MenuEntry("🗂️", "筛选视图") { menuOpen = false; onFilter() }
-                            MenuEntry("🧩", "管理选项") { menuOpen = false; onManage() }
-                            MenuEntry("⚙️", "设置") { menuOpen = false; onSettings() }
+                    } else {
+                        IconButton(onClick = onCalendar) {
+                            Icon(Icons.Filled.DateRange, contentDescription = "日历")
+                        }
+                        IconButton(onClick = onSearch) {
+                            Icon(Icons.Filled.Search, contentDescription = "搜索")
+                        }
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                MenuEntry("📊", "统计") { menuOpen = false; onStats() }
+                                MenuEntry("🗂️", "筛选视图") { menuOpen = false; onFilter() }
+                                MenuEntry("🧩", "管理选项") { menuOpen = false; onManage() }
+                                MenuEntry("⚙️", "设置") { menuOpen = false; onSettings() }
+                            }
                         }
                     }
                 },
             )
+        },
+        bottomBar = {
+            if (selecting) {
+                SelectionActionBar {
+                    Button(
+                        onClick = {
+                            val ids = selectedIds
+                            scope.launch {
+                                val result = viewModel.batchCheckIn(ids)
+                                exitSelection()
+                                snackbarHostState.showSnackbar(
+                                    when {
+                                        result.recorded > 0 && result.skipped > 0 ->
+                                            "已记录 ${result.recorded} 项（跳过 ${result.skipped} 项）"
+                                        result.recorded > 0 -> "已记录 ${result.recorded} 项"
+                                        else -> "没有可记录的选项"
+                                    }
+                                )
+                            }
+                        },
+                        enabled = selectedIds.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(if (selectedIds.isEmpty()) "打卡所选" else "打卡所选（${selectedIds.size}）")
+                    }
+                }
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
@@ -251,6 +341,11 @@ fun TodayScreen(
                     items(section.rows, key = { it.item.id }) { row ->
                         ItemCard(
                             row = row,
+                            selecting = selecting,
+                            selected = row.item.id in selectedIds,
+                            batchable = canBatch(row, batchValues),
+                            onLongPress = { enterSelection(row) },
+                            onToggleSelect = { toggleSelect(row) },
                             onToggleBoolean = { viewModel.toggleBoolean(row.item) },
                             onQuickAdd = { viewModel.addValue(row.item, 1.0, "") },
                             onOpenRecord = { recordDialogItem = row.item },
@@ -346,6 +441,11 @@ private fun ProgressCard(done: Int, total: Int) {
 @Composable
 private fun ItemCard(
     row: ItemRow,
+    selecting: Boolean = false,
+    selected: Boolean = false,
+    batchable: Boolean = true,
+    onLongPress: () -> Unit = {},
+    onToggleSelect: () -> Unit = {},
     onToggleBoolean: () -> Unit,
     onQuickAdd: () -> Unit,
     onOpenRecord: () -> Unit,
@@ -361,10 +461,21 @@ private fun ItemCard(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize()
-            .clickable { expanded = !expanded },
+            .combinedClickable(
+                onClick = { if (selecting) onToggleSelect() else expanded = !expanded },
+                onLongClick = { if (!selecting) onLongPress() },
+            ),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (selecting) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = { onToggleSelect() },
+                        enabled = batchable,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
                 if (item.type == CheckType.BOOLEAN && done) {
                     DoneBadge()
                 } else {
@@ -392,26 +503,37 @@ private fun ItemCard(
                         )
                     }
                 }
-                when (item.type) {
-                    CheckType.BOOLEAN -> Checkbox(checked = done, onCheckedChange = { onToggleBoolean() })
-                    CheckType.COUNT -> FilledTonalButton(
-                        onClick = onQuickAdd,
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                    ) { Text("+1") }
-                    else -> OutlinedButton(onClick = onOpenRecord) { Text("记一笔") }
+                if (!selecting) {
+                    when (item.type) {
+                        CheckType.BOOLEAN -> Checkbox(checked = done, onCheckedChange = { onToggleBoolean() })
+                        CheckType.COUNT -> FilledTonalButton(
+                            onClick = onQuickAdd,
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                        ) { Text("+1") }
+                        else -> OutlinedButton(onClick = onOpenRecord) { Text("记一笔") }
+                    }
+                    Spacer(Modifier.width(2.dp))
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = if (expanded) "收起明细" else "展开明细",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .graphicsLayer { rotationZ = if (expanded) 180f else 0f },
+                    )
                 }
-                Spacer(Modifier.width(2.dp))
-                Icon(
-                    imageVector = Icons.Filled.KeyboardArrowDown,
-                    contentDescription = if (expanded) "收起明细" else "展开明细",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .graphicsLayer { rotationZ = if (expanded) 180f else 0f },
+            }
+
+            if (selecting && !batchable) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "需先单笔记一次数值，暂不能批量",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
-            if (expanded) {
+            if (expanded && !selecting) {
                 Spacer(Modifier.height(8.dp))
                 when (item.type) {
                     CheckType.BOOLEAN -> OutlinedButton(
@@ -458,6 +580,12 @@ private fun ItemCard(
             }
         }
     }
+}
+
+/** 该行当前是否可批量（默认值直记）：时长/数值需有目标值或历史值；取值尚未预载完成时按可选处理 */
+private fun canBatch(row: ItemRow, batchValues: Map<Long, Double?>?): Boolean = when (row.item.type) {
+    CheckType.BOOLEAN, CheckType.COUNT -> true
+    else -> row.item.targetValue != null || batchValues == null || batchValues[row.item.id] != null
 }
 
 /** 选项卡片副标题：展示今日完成量与目标对比（只看数据、不改判定） */

@@ -5,11 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.gh.daily_trace.data.model.AppSettings
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
+import com.gh.daily_trace.data.model.CheckType
 import com.gh.daily_trace.data.model.FilterView
 import com.gh.daily_trace.data.model.FrequencyRule
 import com.gh.daily_trace.data.model.Group
 import com.gh.daily_trace.data.model.RecordStatus
 import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.domain.checkin.BatchCheckIn
+import com.gh.daily_trace.domain.checkin.BatchCheckInResult
 import com.gh.daily_trace.domain.checkin.CheckInPlan
 import com.gh.daily_trace.domain.checkin.CheckInPlanner
 import com.gh.daily_trace.domain.checkin.applyPlan
@@ -159,6 +162,52 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
     /** 删除单条记录 */
     fun deleteRecord(recordId: Long) {
         viewModelScope.launch { applyPlan(repository, CheckInPlanner.deleteRecord(recordId)) }
+    }
+
+    /**
+     * 进入多选时预载批量取值：itemId → 将记录的值（null 表示暂不可批量）。
+     * 口径见 [BatchCheckIn]（默认值直记）。
+     */
+    suspend fun loadBatchValues(itemIds: Set<Long>): Map<Long, Double?> {
+        val date = today.value
+        return repository.getAllItems()
+            .filter { it.id in itemIds && !it.archived && it.enabled }
+            .associate { item ->
+                item.id to BatchCheckIn.valueFor(item, repository.getLatestRecordUpTo(item.id, date))
+            }
+    }
+
+    /**
+     * 批量打卡（默认值直记）：已完成布尔项与不可批量项跳过，
+     * 其余逐项复用 [CheckInPlanner.addValue] 单笔写入。
+     */
+    suspend fun batchCheckIn(itemIds: Set<Long>): BatchCheckInResult {
+        if (itemIds.isEmpty()) return BatchCheckInResult(0, 0)
+        val settings = repository.getSettings()
+        val date = today.value
+        val items = repository.getAllItems()
+            .filter { it.id in itemIds && !it.archived && it.enabled }
+        val now = System.currentTimeMillis()
+        var recorded = 0
+        var skipped = 0
+        items.forEach { item ->
+            val existing = repository.getRecordsOfItemOn(item.id, date)
+            if (item.type == CheckType.BOOLEAN && existing.any { it.status == RecordStatus.DONE }) {
+                skipped++
+                return@forEach
+            }
+            val value = BatchCheckIn.valueFor(item, repository.getLatestRecordUpTo(item.id, date))
+            if (value == null) {
+                skipped++
+                return@forEach
+            }
+            applyPlan(
+                repository,
+                CheckInPlanner.addValue(item, date, existing, value, note = "", timezone = settings.timezone, isBackfill = false, now = now),
+            )
+            recorded++
+        }
+        return BatchCheckInResult(recorded, skipped)
     }
 
     private fun mutate(

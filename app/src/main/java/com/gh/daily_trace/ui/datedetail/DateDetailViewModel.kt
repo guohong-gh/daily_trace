@@ -5,11 +5,15 @@ import androidx.lifecycle.viewModelScope
 import com.gh.daily_trace.data.model.AppSettings
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
+import com.gh.daily_trace.data.model.CheckType
 import com.gh.daily_trace.data.model.DayNote
 import com.gh.daily_trace.data.model.FrequencyRule
 import com.gh.daily_trace.data.model.RecordStatus
 import com.gh.daily_trace.data.repository.DailyTraceRepository
 import com.gh.daily_trace.domain.checkin.BackfillPolicy
+import com.gh.daily_trace.domain.checkin.BatchCheckIn
+import com.gh.daily_trace.domain.checkin.BatchCheckInResult
+import com.gh.daily_trace.domain.checkin.CheckInPlan
 import com.gh.daily_trace.domain.checkin.CheckInPlanner
 import com.gh.daily_trace.domain.checkin.applyPlan
 import com.gh.daily_trace.domain.time.DayClock
@@ -117,6 +121,69 @@ class DateDetailViewModel(
 
     fun deleteRecord(recordId: Long) {
         viewModelScope.launch { applyPlan(repository, CheckInPlanner.deleteRecord(recordId)) }
+    }
+
+    /** 批量删除所选记录（不可恢复，UI 侧带确认框） */
+    fun deleteRecords(recordIds: Set<Long>) {
+        if (recordIds.isEmpty()) return
+        viewModelScope.launch { applyPlan(repository, CheckInPlan(deletes = recordIds.sorted())) }
+    }
+
+    /** 批量改备注：统一覆盖所选记录；空串即清除 */
+    fun setRecordsNote(recordIds: Set<Long>, note: String) {
+        if (recordIds.isEmpty()) return
+        viewModelScope.launch {
+            repository.updateRecordsNote(recordIds.sorted(), note, System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * 选择器批量取值预载：itemId → 将记录的值（null 表示暂不可批量）。
+     * 口径见 [BatchCheckIn]（默认值直记）。
+     */
+    suspend fun loadBatchValues(): Map<Long, Double?> =
+        repository.getAllItems()
+            .filter { !it.archived && it.enabled }
+            .associate { item ->
+                item.id to BatchCheckIn.valueFor(item, repository.getLatestRecordUpTo(item.id, date))
+            }
+
+    /**
+     * 批量记录（默认值直记）：今天 = 打卡、过去 = 补卡、未来 = 计划。
+     * 逐项复用 BackfillPolicy 与 [CheckInPlanner]；已完成布尔项与不可批量项跳过。
+     */
+    suspend fun batchAddRecords(itemIds: Set<Long>): BatchCheckInResult {
+        if (itemIds.isEmpty()) return BatchCheckInResult(0, 0)
+        val settings = repository.getSettings()
+        val todayDay = DayClock.from(settings).today()
+        val canPlan = BackfillPolicy.canPlan(date, todayDay)
+        val canCheckIn = BackfillPolicy.canCheckIn(date, todayDay, settings.maxBackfillDays)
+        if (!canPlan && !canCheckIn) return BatchCheckInResult(0, itemIds.size)
+        val items = repository.getAllItems()
+            .filter { it.id in itemIds && !it.archived && it.enabled }
+        val now = System.currentTimeMillis()
+        var recorded = 0
+        var skipped = 0
+        items.forEach { item ->
+            val existing = repository.getRecordsOfItemOn(item.id, date)
+            val doneBoolean = item.type == CheckType.BOOLEAN && existing.any { it.status == RecordStatus.DONE }
+            val value = BatchCheckIn.valueFor(item, repository.getLatestRecordUpTo(item.id, date))
+            if (value == null || (!canPlan && doneBoolean)) {
+                skipped++
+                return@forEach
+            }
+            val plan = if (canPlan) {
+                CheckInPlanner.planAhead(item, date, existing, value, note = "", timezone = settings.timezone, now = now)
+            } else {
+                CheckInPlanner.addValue(
+                    item, date, existing, value, note = "",
+                    timezone = settings.timezone, isBackfill = BackfillPolicy.isBackfill(date, todayDay), now = now,
+                )
+            }
+            applyPlan(repository, plan)
+            recorded++
+        }
+        return BatchCheckInResult(recorded, skipped)
     }
 
     /**

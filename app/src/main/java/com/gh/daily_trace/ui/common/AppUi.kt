@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,9 +23,15 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -248,3 +255,28 @@ fun SwitchRow(
         Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
+
+/** 多选集合状态：Long id 集合，rememberSaveable 持久化（Bundle 以 List<Long> 存放） */
+@Composable
+fun rememberSelectedIds(): MutableState<Set<Long>> {
+    val saver = remember {
+        Saver<Set<Long>, List<Long>>(save = { it.toList() }, restore = { it.toSet() })
+    }
+    return rememberSaveable(stateSaver = saver) { mutableStateOf(emptySet()) }
+}
+
+/** 多选底部操作条：统一 16dp 边距 + 12dp 按钮间距的容器 */
+@Composable
+fun SelectionActionBar(content: @Composable RowScope.() -> Unit) {
+    Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 3.dp) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content,
+        )
+    }
+}
+

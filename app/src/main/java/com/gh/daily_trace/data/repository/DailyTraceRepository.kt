@@ -71,6 +71,15 @@ class DailyTraceRepository(
     suspend fun insertRecord(record: CheckRecord): Long = checkRecordDao.insert(record)
     suspend fun insertRecords(records: List<CheckRecord>) = checkRecordDao.insertAll(records)
     suspend fun updateRecord(record: CheckRecord) = checkRecordDao.update(record)
+
+    /** 批量改备注（覆盖式；空串即清除） */
+    suspend fun updateRecordsNote(ids: List<Long>, note: String, now: Long) =
+        checkRecordDao.updateNoteByIds(ids, note, now)
+
+    /** 截至指定日期的最近一条记录（批量记录沿用值用） */
+    suspend fun getLatestRecordUpTo(itemId: Long, date: Long): CheckRecord? =
+        checkRecordDao.getLatestUpTo(itemId, date)
+
     suspend fun deleteRecord(id: Long) = checkRecordDao.delete(id)
     suspend fun deleteRecords(ids: List<Long>) = checkRecordDao.deleteByIds(ids)
     suspend fun getAllRecords(): List<CheckRecord> = checkRecordDao.getAll()

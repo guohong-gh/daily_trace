@@ -76,6 +76,34 @@ class ManageItemsViewModel(
         scheduler.rescheduleAll()
     }
 
+    /** 批量归档 / 取消归档 */
+    fun archiveAll(ids: Set<Long>, archived: Boolean) = viewModelScope.launch {
+        if (ids.isEmpty()) return@launch
+        ids.sorted().forEach { repository.setItemArchived(it, archived) }
+        scheduler.rescheduleAll()
+    }
+
+    /** 批量移入回收站 */
+    fun trashAll(ids: Set<Long>) = viewModelScope.launch {
+        if (ids.isEmpty()) return@launch
+        ids.sorted().forEach { repository.softDeleteItem(it) }
+        scheduler.rescheduleAll()
+    }
+
+    /** 批量恢复 */
+    fun restoreAll(ids: Set<Long>) = viewModelScope.launch {
+        if (ids.isEmpty()) return@launch
+        ids.sorted().forEach { repository.restoreItem(it) }
+        scheduler.rescheduleAll()
+    }
+
+    /** 批量彻底删除 */
+    fun purgeAll(ids: Set<Long>) = viewModelScope.launch {
+        if (ids.isEmpty()) return@launch
+        ids.sorted().forEach { repository.purgeItem(it) }
+        scheduler.rescheduleAll()
+    }
+
     private suspend fun move(item: CheckItem, delta: Int) {
         val actives = repository.getAllItems()
             .filter { !it.archived && it.enabled } // getAll 已按 sort,id 排序且不含回收站

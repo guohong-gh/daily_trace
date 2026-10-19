@@ -59,6 +59,17 @@ interface CheckRecordDao {
     @Update
     suspend fun update(record: CheckRecord)
 
+    /** 批量改备注（覆盖式；空串即清除） */
+    @Query("UPDATE check_records SET note = :note, updatedAt = :now WHERE id IN (:ids)")
+    suspend fun updateNoteByIds(ids: List<Long>, note: String, now: Long)
+
+    /** 截至指定日期的最近一条记录（批量记录沿用值用） */
+    @Query(
+        "SELECT * FROM check_records WHERE itemId = :itemId AND date <= :date " +
+            "ORDER BY date DESC, createdAt DESC LIMIT 1"
+    )
+    suspend fun getLatestUpTo(itemId: Long, date: Long): CheckRecord?
+
     @Query("DELETE FROM check_records WHERE id = :id")
     suspend fun delete(id: Long)
 
