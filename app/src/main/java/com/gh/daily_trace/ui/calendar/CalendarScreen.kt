@@ -6,6 +6,7 @@
 package com.gh.daily_trace.ui.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,7 +35,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -66,6 +70,8 @@ import com.gh.daily_trace.di.Container
 import com.gh.daily_trace.domain.calendar.DayMarks
 import com.gh.daily_trace.domain.calendar.DaySummary
 import com.gh.daily_trace.domain.calendar.SummaryEntry
+import com.gh.daily_trace.domain.calendar.WeekCellStatus
+import com.gh.daily_trace.domain.calendar.WeekRow
 import com.gh.daily_trace.domain.time.DayClock
 import com.gh.daily_trace.ui.common.ItemBadge
 import com.gh.daily_trace.ui.common.RecordStatusPill
@@ -79,6 +85,11 @@ import kotlin.math.abs
 
 /** 远距离跳月（年月选择器/今天）直接定位，避免长动画；近距离（箭头/滑动邻月）平滑翻页 */
 private const val PAGE_ANIMATE_RANGE = 2
+
+/** 周视图行首列宽（色块 + 名称） */
+private val WEEK_LABEL_WIDTH = 84.dp
+
+private val WEEKDAY_LABELS = listOf("一", "二", "三", "四", "五", "六", "日")
 
 @Composable
 fun CalendarRoute(
@@ -101,26 +112,6 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
     val state by viewModel.uiState.collectAsState()
     var summaryDate by remember { mutableStateOf<Long?>(null) }
     var pickerOpen by remember { mutableStateOf(false) }
-
-    val pagerState = rememberPagerState(
-        initialPage = monthToPage(state.month),
-        pageCount = { CALENDAR_MONTH_COUNT },
-    )
-    // 滑动停稳 → 同步 VM 月份（驱动数据窗口与标题）
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }
-            .collect { page -> viewModel.setMonth(pageToMonth(page)) }
-    }
-    // VM 月份变化（箭头 / 今天 / 年月选择器）→ 定位 pager
-    LaunchedEffect(state.month) {
-        val target = monthToPage(state.month)
-        when {
-            pagerState.currentPage == target -> Unit
-            abs(target - pagerState.currentPage) <= PAGE_ANIMATE_RANGE ->
-                pagerState.animateScrollToPage(target)
-            else -> pagerState.scrollToPage(target)
-        }
-    }
 
     LifecycleResumeEffect(Unit) {
         viewModel.refreshToday()
@@ -162,104 +153,23 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
                 }
                 Spacer(Modifier.height(8.dp))
             }
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        IconButton(onClick = { viewModel.prevMonth() }) {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上个月")
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(MaterialTheme.shapes.small)
-                                .clickable(onClickLabel = "选择年月") { pickerOpen = true }
-                                .padding(vertical = 8.dp),
-                        ) {
-                            Text(state.title, style = MaterialTheme.typography.titleMedium)
-                            Icon(
-                                Icons.Filled.ArrowDropDown,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                        IconButton(onClick = { viewModel.nextMonth() }) {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下个月")
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth()) {
-                        state.weekHeaders.forEach { header ->
-                            Text(
-                                header,
-                                textAlign = TextAlign.Center,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { page ->
-                        val pageMonth = pageToMonth(page)
-                        Column(Modifier.fillMaxWidth()) {
-                            DayClock.monthGridRows(pageMonth, state.weekStart).forEach { week ->
-                                Row(Modifier.fillMaxWidth()) {
-                                    week.forEach { date ->
-                                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                                            if (date != null) {
-                                                DayCell(
-                                                    date = date,
-                                                    mark = state.marks[date],
-                                                    isToday = date == state.today,
-                                                    hasSummary = state.summaries.containsKey(date),
-                                                    onOpenDate = { onOpenDate(date) },
-                                                    onLongPress = { summaryDate = date },
-                                                )
-                                            } else {
-                                                Spacer(Modifier.height(48.dp))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(4.dp))
-                }
+            CalendarModeTabs(selected = state.viewMode, onSelect = viewModel::setViewMode)
+            Spacer(Modifier.height(8.dp))
+            when (state.viewMode) {
+                CalendarViewMode.MONTH -> MonthView(
+                    state = state,
+                    viewModel = viewModel,
+                    onOpenDate = onOpenDate,
+                    onLongPressDate = { summaryDate = it },
+                    onOpenPicker = { pickerOpen = true },
+                )
+                CalendarViewMode.WEEK -> WeekView(
+                    state = state,
+                    viewModel = viewModel,
+                    onOpenDate = onOpenDate,
+                    onLongPressDate = { summaryDate = it },
+                )
             }
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Dot(Color(0xFF2E6B4A), 4.dp)
-                    Dot(Color(0xFF1565C0), 4.dp)
-                    Dot(Color(0xFFEF6C00), 4.dp)
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        "已完成的选项（颜色对应选项）",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Dot(MaterialTheme.colorScheme.tertiary, 5.dp)
-                    Text(
-                        "有备注",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "左右滑动切换月份 · 长按日期查看当日摘要",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 
@@ -288,6 +198,369 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
         )
     }
 }
+
+/** 视图 tab（M8）：点击切换、不横滑（横滑留给各视图自己的翻页） */
+@Composable
+private fun CalendarModeTabs(selected: CalendarViewMode, onSelect: (CalendarViewMode) -> Unit) {
+    val tabs = listOf(CalendarViewMode.MONTH to "月", CalendarViewMode.WEEK to "周")
+    PrimaryTabRow(selectedTabIndex = tabs.indexOfFirst { it.first == selected }.coerceAtLeast(0)) {
+        tabs.forEach { (mode, label) ->
+            Tab(
+                selected = mode == selected,
+                onClick = { onSelect(mode) },
+                text = { Text(label) },
+            )
+        }
+    }
+}
+
+// ---------- 月视图 ----------
+
+@Composable
+private fun MonthView(
+    state: CalendarUiState,
+    viewModel: CalendarViewModel,
+    onOpenDate: (Long) -> Unit,
+    onLongPressDate: (Long) -> Unit,
+    onOpenPicker: () -> Unit,
+) {
+    val pagerState = rememberPagerState(
+        initialPage = monthToPage(state.month),
+        pageCount = { CALENDAR_MONTH_COUNT },
+    )
+    // 滑动停稳 → 同步 VM 月份（驱动数据窗口与标题）
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }
+            .collect { page -> viewModel.setMonth(pageToMonth(page)) }
+    }
+    // VM 月份变化（箭头 / 今天 / 年月选择器）→ 定位 pager
+    LaunchedEffect(state.month) {
+        val target = monthToPage(state.month)
+        when {
+            pagerState.currentPage == target -> Unit
+            abs(target - pagerState.currentPage) <= PAGE_ANIMATE_RANGE ->
+                pagerState.animateScrollToPage(target)
+            else -> pagerState.scrollToPage(target)
+        }
+    }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                IconButton(onClick = { viewModel.prevMonth() }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上个月")
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable(onClickLabel = "选择年月", onClick = onOpenPicker)
+                        .padding(vertical = 8.dp),
+                ) {
+                    Text(state.title, style = MaterialTheme.typography.titleMedium)
+                    Icon(
+                        Icons.Filled.ArrowDropDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                IconButton(onClick = { viewModel.nextMonth() }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下个月")
+                }
+            }
+            Row(Modifier.fillMaxWidth()) {
+                state.weekHeaders.forEach { header ->
+                    Text(
+                        header,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxWidth(),
+            ) { page ->
+                val pageMonth = pageToMonth(page)
+                Column(Modifier.fillMaxWidth()) {
+                    DayClock.monthGridRows(pageMonth, state.weekStart).forEach { week ->
+                        Row(Modifier.fillMaxWidth()) {
+                            week.forEach { date ->
+                                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                    if (date != null) {
+                                        DayCell(
+                                            date = date,
+                                            mark = state.marks[date],
+                                            isToday = date == state.today,
+                                            hasSummary = state.summaries.containsKey(date),
+                                            onOpenDate = { onOpenDate(date) },
+                                            onLongPress = { onLongPressDate(date) },
+                                        )
+                                    } else {
+                                        Spacer(Modifier.height(48.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            Dot(Color(0xFF2E6B4A), 4.dp)
+            Dot(Color(0xFF1565C0), 4.dp)
+            Dot(Color(0xFFEF6C00), 4.dp)
+            Spacer(Modifier.width(3.dp))
+            Text(
+                "已完成的选项（颜色对应选项）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Dot(MaterialTheme.colorScheme.tertiary, 5.dp)
+            Text(
+                "有备注",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Text(
+        "左右滑动切换月份 · 长按日期查看当日摘要",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+// ---------- 周视图 ----------
+
+@Composable
+private fun WeekView(
+    state: CalendarUiState,
+    viewModel: CalendarViewModel,
+    onOpenDate: (Long) -> Unit,
+    onLongPressDate: (Long) -> Unit,
+) {
+    val bounds = calendarWeekBounds(state.weekStart)
+    val anchor = if (state.weekAnchor in bounds) state.weekAnchor else bounds.first
+    val pagerState = rememberPagerState(
+        initialPage = weekToPage(anchor, state.weekStart),
+        pageCount = { weekPageCount(state.weekStart) },
+    )
+    // 滑动停稳 → 同步 VM 周锚点（驱动数据窗口与标题）
+    LaunchedEffect(pagerState, state.weekStart) {
+        snapshotFlow { pagerState.settledPage }
+            .collect { page -> viewModel.setWeekAnchor(pageToWeekStart(page, state.weekStart)) }
+    }
+    // VM 周锚点变化（箭头 / 今天）→ 定位 pager
+    LaunchedEffect(state.weekAnchor, state.weekStart) {
+        val target = weekToPage(state.weekAnchor.coerceIn(bounds.first, bounds.last), state.weekStart)
+        when {
+            pagerState.currentPage == target -> Unit
+            abs(target - pagerState.currentPage) <= PAGE_ANIMATE_RANGE ->
+                pagerState.animateScrollToPage(target)
+            else -> pagerState.scrollToPage(target)
+        }
+    }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                IconButton(onClick = { viewModel.prevWeek() }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一周")
+                }
+                Text(
+                    state.weekTitle,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { viewModel.nextWeek() }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一周")
+                }
+            }
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
+                val pageAnchor = pageToWeekStart(page, state.weekStart)
+                WeekPage(
+                    anchor = pageAnchor,
+                    today = state.today,
+                    rows = state.weekRowsByAnchor[pageAnchor].orEmpty(),
+                    summaries = state.summaries,
+                    onOpenDate = onOpenDate,
+                    onLongPressDate = onLongPressDate,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        WeekLegendItem(WeekCellStatus.DONE, "完成")
+        WeekLegendItem(WeekCellStatus.PARTIAL, "部分")
+        WeekLegendItem(WeekCellStatus.PLANNED, "计划")
+        WeekLegendItem(WeekCellStatus.SKIPPED, "跳过")
+    }
+    Spacer(Modifier.height(6.dp))
+    Text(
+        "左右滑动切换周 · 长按日期查看当日摘要",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun WeekPage(
+    anchor: Long,
+    today: Long,
+    rows: List<WeekRow>,
+    summaries: Map<Long, DaySummary>,
+    onOpenDate: (Long) -> Unit,
+    onLongPressDate: (Long) -> Unit,
+) {
+    val days = (anchor until anchor + 7).toList()
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth()) {
+            Spacer(Modifier.width(WEEK_LABEL_WIDTH))
+            days.forEach { day ->
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        WEEKDAY_LABELS[LocalDate.ofEpochDay(day).dayOfWeek.value - 1],
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(26.dp)
+                            .then(
+                                if (day == today) {
+                                    Modifier.background(MaterialTheme.colorScheme.primary, CircleShape)
+                                } else {
+                                    Modifier
+                                }
+                            ),
+                    ) {
+                        Text(
+                            LocalDate.ofEpochDay(day).dayOfMonth.toString(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (day == today) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            fontWeight = if (day == today) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(2.dp))
+        if (rows.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(96.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "没有可展示的选项",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            rows.forEach { row ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .width(WEEK_LABEL_WIDTH)
+                            .padding(end = 6.dp),
+                    ) {
+                        Box(Modifier.size(6.dp).background(Color(row.color), CircleShape))
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            row.name,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    row.cells.forEach { cell ->
+                        val hasSummary = summaries.containsKey(cell.date)
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .combinedClickable(
+                                    onLongClick = if (hasSummary) {
+                                        ({ onLongPressDate(cell.date) })
+                                    } else {
+                                        null
+                                    },
+                                    onClick = { onOpenDate(cell.date) },
+                                ),
+                        ) {
+                            WeekCellDot(cell.status, Color(row.color))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 周视图格子：完成=实心、部分=半透明、计划=空心描边、跳过=灰杠、空=占位 */
+@Composable
+private fun WeekCellDot(status: WeekCellStatus, color: Color) {
+    when (status) {
+        WeekCellStatus.DONE -> Box(Modifier.size(16.dp).background(color, CircleShape))
+        WeekCellStatus.PARTIAL -> Box(Modifier.size(16.dp).background(color.copy(alpha = 0.4f), CircleShape))
+        WeekCellStatus.PLANNED -> Box(Modifier.size(16.dp).border(1.5.dp, color, CircleShape))
+        WeekCellStatus.SKIPPED -> Box(
+            Modifier
+                .width(12.dp)
+                .height(2.dp)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        )
+        WeekCellStatus.NONE -> Spacer(Modifier.size(16.dp))
+    }
+}
+
+@Composable
+private fun WeekLegendItem(status: WeekCellStatus, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        WeekCellDot(status, MaterialTheme.colorScheme.primary)
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+// ---------- 共用组件 ----------
 
 /** 年月选择器（D32）：年步进 + 3×4 月网格，点月即跳转 */
 @Composable
