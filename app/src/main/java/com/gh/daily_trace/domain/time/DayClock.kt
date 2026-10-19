@@ -56,11 +56,7 @@ class DayClock(
     fun weekdayOf(epochDay: Long): DayOfWeek = LocalDate.ofEpochDay(epochDay).dayOfWeek
 
     /** 所在周的起始逻辑日（依据 weekStart，1=周一 … 7=周日） */
-    fun weekStartOf(epochDay: Long): Long {
-        val dow = weekdayOf(epochDay).value
-        val diff = Math.floorMod(dow - weekStart.value, 7).toLong()
-        return epochDay - diff
-    }
+    fun weekStartOf(epochDay: Long): Long = weekStartOf(epochDay, weekStart)
 
     /** 所在周的 7 个逻辑日（从周起始日算起） */
     fun weekDatesOf(epochDay: Long): List<Long> {
@@ -82,17 +78,31 @@ class DayClock(
      * 月历网格：按周排布，首尾补 null；行数 4-6 视月份与 weekStart 而定。
      * 每行 7 个格子，null 表示非本月。
      */
-    fun monthGridRowsOf(yearMonth: YearMonth): List<List<Long?>> {
-        val first = yearMonth.atDay(1).toEpochDay()
-        val last = yearMonth.atEndOfMonth().toEpochDay()
-        val gridStart = weekStartOf(first)
-        val gridEnd = weekStartOf(last) + 6
-        return (gridStart..gridEnd).chunked(7) { week ->
-            week.map { d -> if (d in first..last) d else null }
-        }
-    }
+    fun monthGridRowsOf(yearMonth: YearMonth): List<List<Long?>> =
+        monthGridRows(yearMonth, weekStart)
 
     companion object {
+        /** 所在周的起始逻辑日（纯函数版，供不持有 DayClock 的调用方使用） */
+        fun weekStartOf(epochDay: Long, weekStart: DayOfWeek): Long {
+            val dow = LocalDate.ofEpochDay(epochDay).dayOfWeek.value
+            val diff = Math.floorMod(dow - weekStart.value, 7).toLong()
+            return epochDay - diff
+        }
+
+        /**
+         * 月历网格（纯函数版，供滑动翻月逐页渲染）。
+         * 与 [monthGridRowsOf] 同口径：按周排布，首尾补 null；行数 4-6。
+         */
+        fun monthGridRows(yearMonth: YearMonth, weekStart: DayOfWeek): List<List<Long?>> {
+            val first = yearMonth.atDay(1).toEpochDay()
+            val last = yearMonth.atEndOfMonth().toEpochDay()
+            val gridStart = weekStartOf(first, weekStart)
+            val gridEnd = weekStartOf(last, weekStart) + 6
+            return (gridStart..gridEnd).chunked(7) { week ->
+                week.map { d -> if (d in first..last) d else null }
+            }
+        }
+
         /** 从应用设置构建；时区非法时回退系统默认 */
         fun from(settings: AppSettings, clock: Clock = Clock.systemDefaultZone()): DayClock = DayClock(
             zone = runCatching { ZoneId.of(settings.timezone) }.getOrDefault(ZoneId.systemDefault()),

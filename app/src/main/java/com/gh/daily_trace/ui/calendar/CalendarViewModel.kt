@@ -22,13 +22,35 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 
+/** 日历可翻月范围（D32）：1970-01 ~ 2100-12，边界停住不回绕 */
+val CALENDAR_MIN_MONTH: YearMonth = YearMonth.of(1970, 1)
+val CALENDAR_MAX_MONTH: YearMonth = YearMonth.of(2100, 12)
+
+/** 翻月总页数（含首尾） */
+val CALENDAR_MONTH_COUNT: Int = monthToPage(CALENDAR_MAX_MONTH) + 1
+
+/** 月份 → pager 页索引（[CALENDAR_MIN_MONTH] 为第 0 页） */
+fun monthToPage(month: YearMonth): Int = monthIndex(month) - monthIndex(CALENDAR_MIN_MONTH)
+
+/** pager 页索引 → 月份 */
+fun pageToMonth(page: Int): YearMonth {
+    val index = monthIndex(CALENDAR_MIN_MONTH) + page
+    return YearMonth.of(index / 12, index % 12 + 1)
+}
+
+private fun monthIndex(month: YearMonth): Int = month.year * 12 + (month.monthValue - 1)
+
 data class CalendarUiState(
     val title: String = "",
+    /** 当前月（与滑动 pager 双向同步） */
+    val month: YearMonth = YearMonth.now(),
+    /** 周起始（逐月网格渲染用，见 DayClock.monthGridRows） */
+    val weekStart: DayOfWeek = DayOfWeek.MONDAY,
     val weekHeaders: List<String> = emptyList(),
-    val rows: List<List<Long?>> = emptyList(),
     /** 逐日标记：逐选项快照色圆点 + 「+N」溢出 + 备注 */
     val marks: Map<Long, DayMarks> = emptyMap(),
     /** 逐日摘要（长按浮层数据） */
@@ -40,6 +62,7 @@ data class CalendarUiState(
 
 /**
  * 日历月视图：逐选项彩色标记 + 长按摘要，点击进入日期详情。
+ * 左右滑动翻月（1970-01 ~ 2100-12，D32）、点标题弹年月选择器；记录窗口为当前月 ±1。
  * 标记联动今日页已应用的筛选视图（选项/分组范围；忽略日筛选），数据变化实时刷新。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -69,11 +92,18 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
 
     val uiState: StateFlow<CalendarUiState> = combine(
         month,
+        // 预取「当前月 ±1」，保证左右滑动时相邻月有标记可渲染（D32）
         month.flatMapLatest { ym ->
-            repository.observeRecordsBetween(ym.atDay(1).toEpochDay(), ym.atEndOfMonth().toEpochDay())
+            repository.observeRecordsBetween(
+                ym.minusMonths(1).atDay(1).toEpochDay(),
+                ym.plusMonths(1).atEndOfMonth().toEpochDay(),
+            )
         },
         month.flatMapLatest { ym ->
-            repository.observeDayNotesBetween(ym.atDay(1).toEpochDay(), ym.atEndOfMonth().toEpochDay())
+            repository.observeDayNotesBetween(
+                ym.minusMonths(1).atDay(1).toEpochDay(),
+                ym.plusMonths(1).atEndOfMonth().toEpochDay(),
+            )
         },
         core,
         today,
@@ -92,15 +122,20 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
     }
 
     fun prevMonth() {
-        month.value = month.value.minusMonths(1)
+        setMonth(month.value.minusMonths(1))
     }
 
     fun nextMonth() {
-        month.value = month.value.plusMonths(1)
+        setMonth(month.value.plusMonths(1))
     }
 
     fun backToToday() {
-        month.value = YearMonth.from(LocalDate.ofEpochDay(today.value))
+        setMonth(YearMonth.from(LocalDate.ofEpochDay(today.value)))
+    }
+
+    /** 滑动翻月 / 年月选择器跳转；越界钳制到 1970-01 ~ 2100-12（D32） */
+    fun setMonth(value: YearMonth) {
+        month.value = value.coerceIn(CALENDAR_MIN_MONTH, CALENDAR_MAX_MONTH)
     }
 
     /** 由导航层同步今日页已应用的筛选视图；-1 表示清除筛选 */
@@ -135,8 +170,9 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
         val weekHeaders = (0 until 7).map { clock.format(gridStart + it, "EEEEE") }
         return CalendarUiState(
             title = "${ym.year}年${ym.monthValue}月",
+            month = ym,
+            weekStart = clock.weekStart,
             weekHeaders = weekHeaders,
-            rows = clock.monthGridRowsOf(ym),
             marks = built.marks,
             summaries = built.summaries,
             today = todayDay,

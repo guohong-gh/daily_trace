@@ -37,6 +37,7 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 | M6 发布 | release 构建 + R8 验证、测试补强、lint | ✅ 完成（release 装机运行；lint 错误清零） |
 | UI 优化 | 品牌主题、通用组件库、九屏空态/反馈/校验统一（仅 UI 层） | ✅ 完成（103 用例全绿；lint 无错误；模拟器走查截图 ui2-*） |
 | M7 高频闭环（5 项） | 频率规则、状态录入、休息日登记、统计总量、日历标记 | ✅ 完成（127 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十至十三节） |
+| M8 视图与效率（3 项） | 日历滑动切月 + 年月选择器、周/年/时间线视图、长按多选批量操作 | 🚧 第 8 项完成（M8-1，134 用例全绿；详见第十四节）；6 / 7 待做 |
 
 M1 验收标准：新建 4 类型选项 → 各自打卡 → 杀进程重启数据完整；MultiRecordRule 三种规则行为有单测。
 自动化部分已达成（40 用例全绿 + APK 构建成功）；模拟器（Medium_Phone_API_37.0）手动验收通过（见第八节）。
@@ -113,6 +114,7 @@ M6 发布（交付细节）：
 | D29 | 2026-10-19 | 日历标记 = 逐选项快照色圆点：DONE/PARTIAL 产点、同项同日合一（色取当天最新一条记录）、按选项管理顺序、最多 4 个 +「+N」；PLANNED/SKIPPED 不产点、跳过日不单独标记；备注保留第三色点 | 与 D11（快照展示）、D25（跳过语义）一致；落于 `domain/calendar/CalendarMarks`（M7-5） |
 | D30 | 2026-10-19 | 长按日期 = 当日摘要对话框（快照名/值/状态 + 休息日名单 + 日期备注 + 「查看详情」）；无内容的空日不弹（长按等同点击） | 不新增页面层级；对话框与筛选联动后数据一致（M7-5） |
 | D31 | 2026-10-19 | 日历联动今日页「已应用筛选」仅取选项/分组范围（`FilterMatcher.itemMatches`），忽略 dayFilter；沿用 savedStateHandle 机制（D12）；日历页显示「筛选：xxx 标记已按筛选联动」指示条、清除仍在今日页 | 避免「未打卡」辅助筛选清空日历标记；一处应用全局可见（M7-5） |
+| D32 | 2026-10-19 | 日历翻月 = 1970-01 ~ 2100-12 固定虚拟页（1572 页），边界停住不回绕；记录/备注窗口 = 当前月 ±1（相邻页预取）；年月选择器 = 年步进 + 3×4 月网格、点月即跳转；远距（>2 页）直接定位、近距平滑翻页 | 翻月范围可控可测；相邻预取保证滑动无空白；标题即入口、不增页面层级（M8-1） |
 
 ## 五、假设（因需求文档缺失而采用）
 
@@ -293,3 +295,18 @@ M6 手动验收（通过）：
 - `lintDebug` 0 errors / 17 warnings（与基线一致；期间修复 1 个新增错误：getBackStackEntry 的 remember key 需为 NavBackStackEntry）；`assembleRelease`（R8）成功，release 包 1.84MB。
 - 模拟器走查（debug 包 + run-as）截图 `docs/screenshots/m7-18..23`：逐选项圆点（19 日 3 点）；新增 Run1（蓝）/Read1（橙）打卡后多色 + 「+1」溢出；长按摘要对话框（快照徽章、部分完成胶囊、休息日 Dur1、布尔对勾、「查看详情」跳转日期详情）；筛选视图 RunRead 联动（19 日只剩蓝/橙、17 日仅剩备注点与指示条）；筛选态摘要只列命中项、无休息日行；清除筛选后恢复；空日长按不弹浮层。
 - 拉库校验（含 WAL）：Run1 `color=-15374912`、Read1 `color=-1086464`；20745 记录 = Count1 DONE×3 + Dur1 DONE 60 + Val1 PARTIAL 42 + Run1/Read1 DONE（5 项产点 → 4 圆点 +「+1」，与界面一致）；`filter_views` RunRead = SELECTED `5,6` ANY。
+
+## 十四、M8-1 日历滑动切月批次（2026-10-19）
+
+范围：任务书 M8 第 8 项——左右滑动切换月份 + 年月选择器（M8 首项，批次顺序 8 → 6 → 7）。
+
+交付内容：
+1. `DayClock` 新增静态纯函数 `weekStartOf(epochDay, weekStart)` 与 `monthGridRows(yearMonth, weekStart)`（实例方法 `weekStartOf` / `monthGridRowsOf` 委托之），供 pager 逐页渲染，行为与实例版一致（单测对比锁定）。
+2. `CalendarViewModel`（D32）：state 增 `month`（与 pager 双向同步）与 `weekStart`（逐页网格渲染用）；页映射 `monthToPage/pageToMonth` + 范围常量 `CALENDAR_MIN_MONTH/MAX_MONTH/COUNT`（1572 页）；`setMonth` 越界钳制，`prevMonth/nextMonth/backToToday` 统一走之；记录/备注观察窗口由当月扩为「当前月 ±1」预取。
+3. `CalendarScreen`：周表头固定 + `HorizontalPager` 包裹月网格（初始页 = 当前月）；`settledPage → setMonth` 与 `state.month → 定位` 双向同步（相等守卫防循环）；点标题（带 ▾）弹年月选择器：年步进 ‹ 年 ›（1970..2100 边界置灰）+ 3×4 月网格（当前月高亮），点月即跳转；远距（>2 页）直接定位、近距平滑翻页；DayCell 点按/长按行为不变。
+
+验证：
+- `testDebugUnitTest` 134/134 全绿（新增 7：网格纯函数版与实例版一致、4 行/6 行月、闰年二月含 29 日、每行 7 格非本月补 null 且日期连续、页↔月互逆、范围边界与总页数、年份跨越换算）。
+- `lintDebug` 0 errors / 17 warnings（修复 1 条新增警告 AutoboxingStateCreation → `mutableIntStateOf`）；`assembleRelease`（R8）成功，release 包 1.85MB。
+- 模拟器走查截图 `docs/screenshots/m8-01..11`：滑动切月 10→11→9→10 月（标题与网格随页更新，相邻月空、回载标记完整含 19 日「+1」）；点标题弹选择器（2026 年、10 月高亮）；点「7月」跳转（2026年7月，1 日周三）；「今天」从 7 月远跳回 10 月；选择器连点「上一年」56 次到 1970（‹ 置灰）、点「1月」入 1970-01（1 日周四）；1970-01 继续右滑停住不回绕、左滑到 1970-02 正常；长按 19 日摘要对话框、点按 19 日进日期详情（回归通过）。
+- 本批无 schema 变更与数据写入，未做拉库校验。

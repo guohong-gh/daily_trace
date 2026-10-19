@@ -6,6 +6,7 @@
 package com.gh.daily_trace.ui.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,11 +19,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -37,9 +41,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,13 +66,19 @@ import com.gh.daily_trace.di.Container
 import com.gh.daily_trace.domain.calendar.DayMarks
 import com.gh.daily_trace.domain.calendar.DaySummary
 import com.gh.daily_trace.domain.calendar.SummaryEntry
+import com.gh.daily_trace.domain.time.DayClock
 import com.gh.daily_trace.ui.common.ItemBadge
 import com.gh.daily_trace.ui.common.RecordStatusPill
 import com.gh.daily_trace.ui.common.StatusPill
 import com.gh.daily_trace.ui.common.formatValue
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.abs
+
+/** 远距离跳月（年月选择器/今天）直接定位，避免长动画；近距离（箭头/滑动邻月）平滑翻页 */
+private const val PAGE_ANIMATE_RANGE = 2
 
 @Composable
 fun CalendarRoute(
@@ -88,6 +100,27 @@ fun CalendarRoute(
 fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate: (Long) -> Unit) {
     val state by viewModel.uiState.collectAsState()
     var summaryDate by remember { mutableStateOf<Long?>(null) }
+    var pickerOpen by remember { mutableStateOf(false) }
+
+    val pagerState = rememberPagerState(
+        initialPage = monthToPage(state.month),
+        pageCount = { CALENDAR_MONTH_COUNT },
+    )
+    // 滑动停稳 → 同步 VM 月份（驱动数据窗口与标题）
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }
+            .collect { page -> viewModel.setMonth(pageToMonth(page)) }
+    }
+    // VM 月份变化（箭头 / 今天 / 年月选择器）→ 定位 pager
+    LaunchedEffect(state.month) {
+        val target = monthToPage(state.month)
+        when {
+            pagerState.currentPage == target -> Unit
+            abs(target - pagerState.currentPage) <= PAGE_ANIMATE_RANGE ->
+                pagerState.animateScrollToPage(target)
+            else -> pagerState.scrollToPage(target)
+        }
+    }
 
     LifecycleResumeEffect(Unit) {
         viewModel.refreshToday()
@@ -135,12 +168,23 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
                         IconButton(onClick = { viewModel.prevMonth() }) {
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上个月")
                         }
-                        Text(
-                            state.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable(onClickLabel = "选择年月") { pickerOpen = true }
+                                .padding(vertical = 8.dp),
+                        ) {
+                            Text(state.title, style = MaterialTheme.typography.titleMedium)
+                            Icon(
+                                Icons.Filled.ArrowDropDown,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                         IconButton(onClick = { viewModel.nextMonth() }) {
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下个月")
                         }
@@ -157,21 +201,29 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
                         }
                     }
                     Spacer(Modifier.height(4.dp))
-                    state.rows.forEach { week ->
-                        Row(Modifier.fillMaxWidth()) {
-                            week.forEach { date ->
-                                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                                    if (date != null) {
-                                        DayCell(
-                                            date = date,
-                                            mark = state.marks[date],
-                                            isToday = date == state.today,
-                                            hasSummary = state.summaries.containsKey(date),
-                                            onOpenDate = { onOpenDate(date) },
-                                            onLongPress = { summaryDate = date },
-                                        )
-                                    } else {
-                                        Spacer(Modifier.height(48.dp))
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { page ->
+                        val pageMonth = pageToMonth(page)
+                        Column(Modifier.fillMaxWidth()) {
+                            DayClock.monthGridRows(pageMonth, state.weekStart).forEach { week ->
+                                Row(Modifier.fillMaxWidth()) {
+                                    week.forEach { date ->
+                                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                            if (date != null) {
+                                                DayCell(
+                                                    date = date,
+                                                    mark = state.marks[date],
+                                                    isToday = date == state.today,
+                                                    hasSummary = state.summaries.containsKey(date),
+                                                    onOpenDate = { onOpenDate(date) },
+                                                    onLongPress = { summaryDate = date },
+                                                )
+                                            } else {
+                                                Spacer(Modifier.height(48.dp))
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -204,7 +256,7 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                "长按日期查看当日摘要",
+                "左右滑动切换月份 · 长按日期查看当日摘要",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -223,6 +275,94 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
             },
             onDismiss = { summaryDate = null },
         )
+    }
+
+    if (pickerOpen) {
+        MonthPickerDialog(
+            current = state.month,
+            onSelect = { month ->
+                pickerOpen = false
+                viewModel.setMonth(month)
+            },
+            onDismiss = { pickerOpen = false },
+        )
+    }
+}
+
+/** 年月选择器（D32）：年步进 + 3×4 月网格，点月即跳转 */
+@Composable
+private fun MonthPickerDialog(
+    current: YearMonth,
+    onSelect: (YearMonth) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var year by remember { mutableIntStateOf(current.year) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                IconButton(
+                    onClick = { year-- },
+                    enabled = year > CALENDAR_MIN_MONTH.year,
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一年")
+                }
+                Text("$year 年", style = MaterialTheme.typography.titleMedium)
+                IconButton(
+                    onClick = { year++ },
+                    enabled = year < CALENDAR_MAX_MONTH.year,
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一年")
+                }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                (0 until 4).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        (1..3).forEach { column ->
+                            val monthValue = row * 3 + column
+                            MonthCell(
+                                monthValue = monthValue,
+                                selected = year == current.year && monthValue == current.monthValue,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSelect(YearMonth.of(year, monthValue)) },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+@Composable
+private fun MonthCell(monthValue: Int, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val background = if (selected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+    }
+    val textColor = if (selected) {
+        MaterialTheme.colorScheme.onPrimary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Box(
+        modifier = modifier
+            .height(40.dp)
+            .clip(MaterialTheme.shapes.small)
+            .background(background)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("${monthValue}月", style = MaterialTheme.typography.bodyMedium, color = textColor)
     }
 }
 

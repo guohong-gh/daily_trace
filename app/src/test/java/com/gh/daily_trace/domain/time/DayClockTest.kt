@@ -135,6 +135,46 @@ class DayClockTest {
         assertEquals(day(2026, 10, 1), rows.first()[4])
     }
 
+    @Test
+    fun `月历网格纯函数版与实例版一致`() {
+        for (ym in listOf(YearMonth.of(1970, 1), YearMonth.of(2026, 10), YearMonth.of(2100, 12))) {
+            assertEquals(clock().monthGridRowsOf(ym), DayClock.monthGridRows(ym, DayOfWeek.MONDAY))
+            assertEquals(
+                clock(weekStart = DayOfWeek.SUNDAY).monthGridRowsOf(ym),
+                DayClock.monthGridRows(ym, DayOfWeek.SUNDAY),
+            )
+        }
+    }
+
+    @Test
+    fun `月历网格行数可为四或六行`() {
+        // 2027-02：2 月 1 日为周一、28 天 → 恰好 4 行
+        assertEquals(4, DayClock.monthGridRows(YearMonth.of(2027, 2), DayOfWeek.MONDAY).size)
+        // 2026-08：8 月 1 日周六、31 日周一 → 首尾跨 6 周
+        assertEquals(6, DayClock.monthGridRows(YearMonth.of(2026, 8), DayOfWeek.MONDAY).size)
+    }
+
+    @Test
+    fun `闰年二月网格包含29日`() {
+        val rows = DayClock.monthGridRows(YearMonth.of(2028, 2), DayOfWeek.MONDAY)
+        val flat = rows.flatten().filterNotNull()
+        assertEquals(29, flat.size)
+        assertEquals(day(2028, 2, 29), flat.last())
+    }
+
+    @Test
+    fun `网格每行七格非本月补null且日期连续`() {
+        for (ym in listOf(YearMonth.of(1970, 1), YearMonth.of(2026, 2), YearMonth.of(2100, 12))) {
+            val rows = DayClock.monthGridRows(ym, DayOfWeek.SUNDAY)
+            assertTrue(rows.all { it.size == 7 })
+            val flat = rows.flatten().filterNotNull()
+            assertEquals(ym.lengthOfMonth().toLong(), flat.size.toLong())
+            flat.forEachIndexed { index, d ->
+                assertEquals(ym.atDay(1).toEpochDay() + index, d)
+            }
+        }
+    }
+
     // ---------- 从设置构建 ----------
 
     @Test
