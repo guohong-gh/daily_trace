@@ -70,6 +70,7 @@ import com.gh.daily_trace.ui.common.DoneBadge
 import com.gh.daily_trace.ui.common.EmptyState
 import com.gh.daily_trace.ui.common.ItemBadge
 import com.gh.daily_trace.ui.common.RecordDialog
+import com.gh.daily_trace.ui.common.RecordStatusPill
 import com.gh.daily_trace.ui.common.formatTarget
 import com.gh.daily_trace.ui.common.formatValue
 import com.gh.daily_trace.ui.common.timeFormatter
@@ -253,6 +254,7 @@ fun TodayScreen(
                             onToggleBoolean = { viewModel.toggleBoolean(row.item) },
                             onQuickAdd = { viewModel.addValue(row.item, 1.0, "") },
                             onOpenRecord = { recordDialogItem = row.item },
+                            onToggleSkip = { viewModel.toggleSkipToday(row.item) },
                             onDeleteRecord = { id ->
                                 viewModel.deleteRecord(id)
                                 scope.launch { snackbarHostState.showSnackbar("已删除该条记录") }
@@ -268,10 +270,11 @@ fun TodayScreen(
         RecordDialog(
             item = item,
             onDismiss = { recordDialogItem = null },
-            onConfirm = { value, note ->
-                viewModel.addValue(item, value, note)
+            onConfirm = { value, note, status ->
+                viewModel.addValue(item, value, note, status)
                 recordDialogItem = null
             },
+            allowPartial = true,
         )
     }
 }
@@ -346,6 +349,7 @@ private fun ItemCard(
     onToggleBoolean: () -> Unit,
     onQuickAdd: () -> Unit,
     onOpenRecord: () -> Unit,
+    onToggleSkip: () -> Unit,
     onDeleteRecord: (Long) -> Unit,
 ) {
     val item = row.item
@@ -420,6 +424,26 @@ private fun ItemCard(
                     ) { Text("记一笔（可备注）") }
                     else -> Unit
                 }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    TextButton(onClick = onToggleSkip, enabled = row.allowSkip) {
+                        Text(if (row.skipped) "取消跳过" else "跳过今天")
+                    }
+                    when {
+                        !row.allowSkip -> Text(
+                            "已关闭「允许跳过」",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        row.skipped -> Text(
+                            "不计入完成率，不中断连续",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 if (row.records.isEmpty()) {
                     Text(
                         "今日暂无记录",
@@ -437,14 +461,31 @@ private fun ItemCard(
 }
 
 /** 选项卡片副标题：展示今日完成量与目标对比（只看数据、不改判定） */
-private fun itemSubtitle(item: CheckItem, row: ItemRow, done: Boolean, reached: Boolean): String = when {
-    item.type == CheckType.BOOLEAN -> if (done) "今日已完成" else ""
-    item.targetValue != null -> buildString {
-        append("今日 ${formatValue(row.totalValue)}/${formatValue(item.targetValue)} ${item.unit}")
-        if (reached) append(" · 已达标")
+private fun itemSubtitle(item: CheckItem, row: ItemRow, done: Boolean, reached: Boolean): String {
+    if (row.skipped) return "今日已跳过 · 不计完成率"
+    val base = when {
+        item.type == CheckType.BOOLEAN -> if (done) "今日已完成" else ""
+        item.targetValue != null -> buildString {
+            append("今日 ${formatValue(row.totalValue)}/${formatValue(item.targetValue)} ${item.unit}")
+            if (reached) append(" · 已达标")
+        }
+        row.actualRecords.isNotEmpty() -> "今日 ${formatValue(row.totalValue)}${item.unit}"
+        else -> formatTarget(item)
     }
-    row.records.isNotEmpty() -> "今日 ${formatValue(row.totalValue)}${item.unit}"
-    else -> formatTarget(item)
+    val planHint = row.planRecord?.takeIf { !done }?.let { planSummary(it, item.unit) }
+    return when {
+        planHint == null -> base
+        base.isBlank() -> "计划：$planHint"
+        else -> "计划：$planHint · $base"
+    }
+}
+
+/** 计划摘要：「30分钟 · 备注」；无值无备注时为「已安排」 */
+private fun planSummary(record: CheckRecord, unit: String): String {
+    val valueText = record.value?.let { formatValue(it) + unit }
+    return listOfNotNull(valueText, record.note.ifBlank { null })
+        .joinToString(" · ")
+        .ifBlank { "已安排" }
 }
 
 @Composable
@@ -459,6 +500,7 @@ private fun RecordLine(record: CheckRecord, unit: String, onDelete: () -> Unit) 
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.width(10.dp))
+        RecordStatusPill(record.status)
         val valueText = record.value?.let { formatValue(it) + unit }
         val text = listOfNotNull(valueText, record.note.ifBlank { null }).joinToString(" · ")
         Text(

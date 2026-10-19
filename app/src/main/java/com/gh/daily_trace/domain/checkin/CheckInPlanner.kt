@@ -22,12 +22,16 @@ data class CheckInPlan(
 
 /**
  * 打卡语义（与产品假设一致，见 docs/status-and-plan.md）：
- * - toggleBoolean：布尔型快速打卡；今天已有记录 → 全部取消；否则新增一条。
- * - addValue：
- *   - BOOLEAN：新增（无记录）或更新最新一条备注；
+ * - toggleBoolean：布尔型快速打卡；今天已有「完成」记录 → 全部取消；否则新增一条。
+ * - addValue：写入一条状态为「完成」的记录
+ *   - BOOLEAN：新增（无完成记录）或更新最新一条「完成」记录的备注；
  *   - KEEP_MULTIPLE：始终追加新记录；
- *   - MERGE：更新最新一条；输入值非空则覆盖，备注非空则覆盖；
- *   - ACCUMULATE：最新一条累加输入值（输入为空则保留原值）。
+ *   - MERGE：更新最新一条「完成」记录；输入值非空则覆盖，备注非空则覆盖；
+ *   - ACCUMULATE：最新一条「完成」记录累加输入值（输入为空则保留原值）。
+ * - addPartial：部分完成，始终追加一条 status=PARTIAL 记录（不参与合并/累加）。
+ * - planAhead：「计划中」（未来日期）；同日同选项已有计划则更新最近一条，否则新增。
+ *
+ * 合并目标一律取最新一条 status=DONE 的记录，避免覆盖「部分完成/计划/跳过」记录。
  */
 object CheckInPlanner {
 
@@ -38,12 +42,14 @@ object CheckInPlanner {
         timezone: String,
         isBackfill: Boolean,
         now: Long,
-    ): CheckInPlan =
-        if (existing.isNotEmpty()) {
-            CheckInPlan(deletes = existing.map { it.id })
+    ): CheckInPlan {
+        val doneRecords = existing.filter { it.status == RecordStatus.DONE }
+        return if (doneRecords.isNotEmpty()) {
+            CheckInPlan(deletes = doneRecords.map { it.id })
         } else {
             CheckInPlan(inserts = listOf(newRecord(item, date, 1.0, "", timezone, isBackfill, now)))
         }
+    }
 
     fun addValue(
         item: CheckItem,
@@ -55,7 +61,7 @@ object CheckInPlanner {
         isBackfill: Boolean,
         now: Long,
     ): CheckInPlan {
-        val latest = latestOf(existing)
+        val latest = latestDoneOf(existing)
 
         if (item.type == CheckType.BOOLEAN) {
             return if (latest == null) {
@@ -102,6 +108,53 @@ object CheckInPlanner {
         }
     }
 
+    /** 部分完成：始终追加一条 status=PARTIAL 记录（单位取选项当前单位） */
+    fun addPartial(
+        item: CheckItem,
+        date: Long,
+        inputValue: Double?,
+        note: String,
+        timezone: String,
+        isBackfill: Boolean,
+        now: Long,
+    ): CheckInPlan = CheckInPlan(
+        inserts = listOf(
+            newRecord(item, date, inputValue, note, timezone, isBackfill, now, RecordStatus.PARTIAL)
+        )
+    )
+
+    /** 计划中（未来日期）：同日同选项已有计划 → 更新最近一条；否则新增一条 PLANNED */
+    fun planAhead(
+        item: CheckItem,
+        date: Long,
+        existing: List<CheckRecord>,
+        inputValue: Double?,
+        note: String,
+        timezone: String,
+        now: Long,
+    ): CheckInPlan {
+        val latestPlan = existing
+            .filter { it.status == RecordStatus.PLANNED }
+            .maxWithOrNull(compareBy({ it.createdAt }, { it.id }))
+        return if (latestPlan == null) {
+            CheckInPlan(
+                inserts = listOf(
+                    newRecord(item, date, inputValue, note, timezone, isBackfill = false, now, RecordStatus.PLANNED)
+                )
+            )
+        } else {
+            CheckInPlan(
+                updates = listOf(
+                    latestPlan.copy(
+                        value = inputValue ?: latestPlan.value,
+                        note = note.ifBlank { latestPlan.note },
+                        updatedAt = now,
+                    )
+                )
+            )
+        }
+    }
+
     /** 删除单条记录 */
     fun deleteRecord(recordId: Long): CheckInPlan = CheckInPlan(deletes = listOf(recordId))
 
@@ -112,6 +165,9 @@ object CheckInPlanner {
     private fun latestOf(records: List<CheckRecord>): CheckRecord? =
         records.maxWithOrNull(compareBy({ it.createdAt }, { it.id }))
 
+    private fun latestDoneOf(records: List<CheckRecord>): CheckRecord? =
+        records.filter { it.status == RecordStatus.DONE }.maxWithOrNull(compareBy({ it.createdAt }, { it.id }))
+
     private fun newRecord(
         item: CheckItem,
         date: Long,
@@ -120,13 +176,14 @@ object CheckInPlanner {
         timezone: String,
         isBackfill: Boolean,
         now: Long,
+        status: RecordStatus = RecordStatus.DONE,
     ): CheckRecord = CheckRecord(
         itemId = item.id,
         date = date,
         value = value,
         unit = item.unit,
         note = note,
-        status = RecordStatus.DONE,
+        status = status,
         source = RecordSource.MANUAL,
         isBackfill = isBackfill,
         timezone = timezone,

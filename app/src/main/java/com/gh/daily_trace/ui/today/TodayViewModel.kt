@@ -6,6 +6,7 @@ import com.gh.daily_trace.data.model.AppSettings
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
 import com.gh.daily_trace.data.model.FilterView
+import com.gh.daily_trace.data.model.FrequencyRule
 import com.gh.daily_trace.data.model.Group
 import com.gh.daily_trace.data.model.RecordStatus
 import com.gh.daily_trace.data.repository.DailyTraceRepository
@@ -28,9 +29,30 @@ import kotlinx.coroutines.launch
 data class ItemRow(
     val item: CheckItem,
     val records: List<CheckRecord>,
+    val date: Long = 0L,
+    val rule: FrequencyRule? = null,
 ) {
     val done: Boolean get() = records.any { it.status == RecordStatus.DONE }
-    val totalValue: Double get() = records.sumOf { it.value ?: 0.0 }
+
+    /** 实际完成量：只统计完成/部分完成，计划与跳过不计入 */
+    val totalValue: Double
+        get() = records
+            .filter { it.status == RecordStatus.DONE || it.status == RecordStatus.PARTIAL }
+            .sumOf { it.value ?: 0.0 }
+
+    /** 实际打卡记录（不含计划） */
+    val actualRecords: List<CheckRecord>
+        get() = records.filter { it.status != RecordStatus.PLANNED }
+
+    /** 当天最新一条计划（用于提示「今日计划」） */
+    val planRecord: CheckRecord?
+        get() = records.filter { it.status == RecordStatus.PLANNED }.maxByOrNull { it.id }
+
+    /** 已标记跳过（与统计口径一致：需 allowSkip=true） */
+    val skipped: Boolean get() = rule?.allowSkip == true && date in rule.skipDates
+
+    /** 是否允许跳过（无频率规则时默认允许） */
+    val allowSkip: Boolean get() = rule?.allowSkip ?: true
 }
 
 data class GroupSection(val title: String, val rows: List<ItemRow>)
@@ -60,6 +82,7 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
         val groups: List<Group>,
         val settings: AppSettings,
         val filter: FilterView?,
+        val rules: List<FrequencyRule>,
     )
 
     private val today = MutableStateFlow(DayClock.from(AppSettings()).today())
@@ -74,7 +97,8 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
         repository.groups,
         repository.settings,
         activeFilter,
-    ) { items, groups, settings, filter -> Core(items, groups, settings, filter) }
+        repository.frequencyRules,
+    ) { items, groups, settings, filter, rules -> Core(items, groups, settings, filter, rules) }
 
     val uiState: StateFlow<TodayUiState> = combine(
         core,
@@ -106,9 +130,30 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
         CheckInPlanner.toggleBoolean(item, today.value, existing, settings.timezone, isBackfill = false, now = now)
     }
 
-    /** 新增一笔（数值可为空，仅备注） */
-    fun addValue(item: CheckItem, value: Double?, note: String) = mutate(item) { existing, settings, now ->
-        CheckInPlanner.addValue(item, today.value, existing, value, note, settings.timezone, isBackfill = false, now = now)
+    /** 新增一笔（数值可为空，仅备注）；status 可为 DONE 或 PARTIAL */
+    fun addValue(
+        item: CheckItem,
+        value: Double?,
+        note: String,
+        status: RecordStatus = RecordStatus.DONE,
+    ) = mutate(item) { existing, settings, now ->
+        if (status == RecordStatus.PARTIAL) {
+            CheckInPlanner.addPartial(item, today.value, value, note, settings.timezone, isBackfill = false, now = now)
+        } else {
+            CheckInPlanner.addValue(item, today.value, existing, value, note, settings.timezone, isBackfill = false, now = now)
+        }
+    }
+
+    /** 跳过/取消跳过今天（休息日登记；写入频率规则 skipDates，受 allowSkip 门控） */
+    fun toggleSkipToday(item: CheckItem) {
+        viewModelScope.launch {
+            val rule = repository.getFrequencyOf(item.id)
+            if (rule != null && !rule.allowSkip) return@launch
+            val day = today.value
+            val base = rule ?: FrequencyRule(itemId = item.id)
+            val dates = if (day in base.skipDates) base.skipDates - day else base.skipDates + day
+            repository.saveFrequency(base.copy(skipDates = dates.sorted(), updatedAt = System.currentTimeMillis()))
+        }
     }
 
     /** 删除单条记录 */
@@ -130,6 +175,7 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
     private fun buildState(core: Core, records: List<CheckRecord>, date: Long): TodayUiState {
         val clock = DayClock.from(core.settings)
         val byItem = records.groupBy { it.itemId }
+        val rulesByItem = core.rules.associateBy { it.itemId }
 
         val visibleItems = core.items.filter { item ->
             FilterMatcher.matches(item, hasRecords = byItem[item.id].orEmpty().isNotEmpty(), filter = core.filter)
@@ -140,11 +186,11 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
         val sections = buildList {
             core.groups.forEach { g ->
                 grouped[g.id]?.takeIf { it.isNotEmpty() }?.let { list ->
-                    add(GroupSection(g.name, list.toRows(byItem)))
+                    add(GroupSection(g.name, list.toRows(byItem, rulesByItem, date)))
                 }
             }
             grouped[null]?.takeIf { it.isNotEmpty() }?.let { list ->
-                add(GroupSection("未分组", list.toRows(byItem)))
+                add(GroupSection("未分组", list.toRows(byItem, rulesByItem, date)))
             }
         }
         val allRows = sections.flatMap { it.rows }
@@ -159,6 +205,16 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
         )
     }
 
-    private fun List<CheckItem>.toRows(byItem: Map<Long, List<CheckRecord>>): List<ItemRow> =
-        map { item -> ItemRow(item, byItem[item.id].orEmpty().sortedBy { it.createdAt }) }
+    private fun List<CheckItem>.toRows(
+        byItem: Map<Long, List<CheckRecord>>,
+        rulesByItem: Map<Long, FrequencyRule>,
+        date: Long,
+    ): List<ItemRow> = map { item ->
+        ItemRow(
+            item = item,
+            records = byItem[item.id].orEmpty().sortedBy { it.createdAt },
+            date = date,
+            rule = rulesByItem[item.id],
+        )
+    }
 }

@@ -33,4 +33,11 @@ class BackfillPolicyTest {
     fun `未来日期不允许`() {
         assertFalse(BackfillPolicy.canCheckIn(101, today = 100, maxBackfillDays = 30))
     }
+
+    @Test
+    fun `计划仅面向未来日期`() {
+        assertTrue(BackfillPolicy.canPlan(101, today = 100))
+        assertFalse(BackfillPolicy.canPlan(100, today = 100))
+        assertFalse(BackfillPolicy.canPlan(99, today = 100))
+    }
 }

@@ -7,7 +7,9 @@ import com.gh.daily_trace.data.DailyTraceDatabase
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
 import com.gh.daily_trace.data.model.CheckType
+import com.gh.daily_trace.data.model.FrequencyRule
 import com.gh.daily_trace.data.model.MultiRecordRule
+import com.gh.daily_trace.data.model.RecordStatus
 import com.gh.daily_trace.data.repository.DailyTraceRepository
 import com.gh.daily_trace.domain.checkin.CheckInPlanner
 import com.gh.daily_trace.domain.checkin.applyPlan
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -168,5 +171,33 @@ class CheckInFlowTest {
         assertEquals(1, repo.getRecordsOfItemOn(item.id, date + 1).size)
         val all: List<CheckRecord> = repo.observeRecordsBetween(date, date + 1).first().let { it }
         assertEquals(2, all.size)
+    }
+
+    @Test
+    fun partialPlanAndSkipPersistWithStatus() = runBlocking {
+        val item = insertItem("阅读", CheckType.DURATION, MultiRecordRule.KEEP_MULTIPLE, "分钟")
+
+        // 部分完成：追加 PARTIAL 记录（不合并、不覆盖）
+        applyPlan(repo, CheckInPlanner.addPartial(item, date, 20.0, "只读了一会", tz, false, 1_000L))
+        applyPlan(repo, CheckInPlanner.addPartial(item, date, 10.0, "", tz, false, 2_000L))
+        val partials = repo.getRecordsOfItemOn(item.id, date)
+        assertEquals(2, partials.size)
+        assertTrue(partials.all { it.status == RecordStatus.PARTIAL })
+
+        // 计划：未来日期，非补卡；同日重复创建只更新最近一条计划
+        applyPlan(repo, CheckInPlanner.planAhead(item, date + 2, emptyList(), 30.0, "", tz, 3_000L))
+        val plans1 = repo.getRecordsOfItemOn(item.id, date + 2)
+        applyPlan(repo, CheckInPlanner.planAhead(item, date + 2, plans1, 45.0, "加量", tz, 4_000L))
+        val plans2 = repo.getRecordsOfItemOn(item.id, date + 2)
+        assertEquals(1, plans2.size)
+        assertEquals(RecordStatus.PLANNED, plans2[0].status)
+        assertEquals(45.0, plans2[0].value!!, 0.0)
+        assertFalse(plans2[0].isBackfill)
+
+        // 跳过：登记到频率规则 skipDates，不影响已落库记录
+        repo.saveFrequency(FrequencyRule(itemId = item.id, skipDates = listOf(date + 1)))
+        val rule = repo.getFrequencyOf(item.id)!!
+        assertTrue(date + 1 in rule.skipDates)
+        assertEquals(2, repo.getRecordsOfItemOn(item.id, date).size)
     }
 }

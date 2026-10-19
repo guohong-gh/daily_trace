@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gh.daily_trace.data.model.RecordStatus
 
 /**
  * 通用 UI 组件集：卡片区块、区块标题、空/加载状态、图标徽章、状态胶囊、开关行。
@@ -194,6 +196,19 @@ fun StatusPill(
             .background(color.copy(alpha = 0.14f))
             .padding(horizontal = 8.dp, vertical = 3.dp),
     )
+}
+
+/** 记录状态胶囊：部分完成/计划/跳过；「完成」不显示。显示时自带 6dp 间距 */
+@Composable
+fun RecordStatusPill(status: RecordStatus, modifier: Modifier = Modifier) {
+    val (label, color) = when (status) {
+        RecordStatus.PARTIAL -> "部分完成" to MaterialTheme.colorScheme.secondary
+        RecordStatus.PLANNED -> "计划" to MaterialTheme.colorScheme.primary
+        RecordStatus.SKIPPED -> "跳过" to MaterialTheme.colorScheme.tertiary
+        RecordStatus.DONE -> return
+    }
+    StatusPill(label, modifier = modifier, color = color)
+    Spacer(Modifier.width(6.dp))
 }
 
 /** 设置类开关行：标题 + 可选说明 + 右侧开关，整行最小 48dp 点击高度 */

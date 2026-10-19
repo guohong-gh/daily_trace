@@ -6,6 +6,8 @@ import com.gh.daily_trace.data.model.AppSettings
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
 import com.gh.daily_trace.data.model.DayNote
+import com.gh.daily_trace.data.model.FrequencyRule
+import com.gh.daily_trace.data.model.RecordStatus
 import com.gh.daily_trace.data.repository.DailyTraceRepository
 import com.gh.daily_trace.domain.checkin.BackfillPolicy
 import com.gh.daily_trace.domain.checkin.CheckInPlanner
@@ -18,24 +20,54 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/** 补卡/计划选择器中的一行：选项 + 当天状态 */
+data class PickerRow(
+    val item: CheckItem,
+    val skipped: Boolean,
+    val allowSkip: Boolean,
+    val doneCount: Int = 0,
+    val partialCount: Int = 0,
+    val plannedCount: Int = 0,
+) {
+    /** 当天该选项的状态文案（空 = 未记录） */
+    val stateText: String get() = when {
+        skipped -> "已跳过"
+        doneCount > 0 -> "已完成"
+        partialCount > 0 -> "部分完成"
+        plannedCount > 0 -> "计划中"
+        else -> ""
+    }
+}
+
 data class DateDetailUiState(
     val date: Long = 0L,
     val title: String = "",
     val dayNote: String = "",
     val records: List<CheckRecord> = emptyList(),
-    val activeItems: List<CheckItem> = emptyList(),
+    val pickerRows: List<PickerRow> = emptyList(),
     val canCheckIn: Boolean = false,
+    /** 未来日期可创建「计划中」 */
+    val canPlan: Boolean = false,
     /** 不可记录的原因（可记录时为 null） */
     val checkInHint: String? = null,
     val isToday: Boolean = false,
 ) {
-    /** 补卡按钮文案 */
-    val checkInLabel: String get() = if (isToday) "记一笔" else "补卡"
+    /** 记录/计划对话框是否可用 */
+    val canRecord: Boolean get() = canCheckIn || canPlan
+
+    /** 记录入口文案 */
+    val checkInLabel: String get() = when {
+        canPlan -> "添加计划"
+        canCheckIn && isToday -> "记一笔"
+        canCheckIn -> "补卡"
+        else -> "标记状态"
+    }
 }
 
 /**
- * 日期详情：当天记录 + 日期整体备注（第三层备注）+ 补卡。
- * 写入仍统一走 CheckInPlanner；补卡合法性由 BackfillPolicy 判定。
+ * 日期详情：当天记录 + 日期整体备注（第三层备注）+ 补卡/计划/跳过登记。
+ * 写入仍统一走 CheckInPlanner；补卡合法性由 BackfillPolicy 判定，
+ * 跳过写入频率规则 skipDates（受 allowSkip 门控）。
  */
 class DateDetailViewModel(
     private val repository: DailyTraceRepository,
@@ -44,14 +76,16 @@ class DateDetailViewModel(
 
     private val today = MutableStateFlow(DayClock.from(AppSettings()).today())
 
+    private val todayAndRules = combine(today, repository.frequencyRules) { day, rules -> day to rules }
+
     val uiState: StateFlow<DateDetailUiState> = combine(
         repository.observeRecordsOn(date),
         repository.observeDayNote(date),
         repository.activeItems,
         repository.settings,
-        today,
-    ) { records, note, items, settings, todayDay ->
-        buildState(records, note, items, settings, todayDay)
+        todayAndRules,
+    ) { records, note, items, settings, (todayDay, rules) ->
+        buildState(records, note, items, settings, todayDay, rules)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DateDetailUiState(date = date))
 
     fun refreshToday() {
@@ -85,24 +119,43 @@ class DateDetailViewModel(
         viewModelScope.launch { applyPlan(repository, CheckInPlanner.deleteRecord(recordId)) }
     }
 
-    /** 记录一笔（今天）或补卡（过去日期）；写入前按最新设置再校验一次 */
-    fun addRecord(item: CheckItem, value: Double?, note: String) {
+    /**
+     * 记录一笔：status=DONE（默认）/ PARTIAL（部分完成）/ PLANNED（未来日期计划）。
+     * 写入前按最新设置重新校验窗口。
+     */
+    fun addRecord(item: CheckItem, value: Double?, note: String, status: RecordStatus) {
         viewModelScope.launch {
             val settings = repository.getSettings()
             val todayDay = DayClock.from(settings).today()
-            if (!BackfillPolicy.canCheckIn(date, todayDay, settings.maxBackfillDays)) return@launch
             val existing = repository.getRecordsOfItemOn(item.id, date)
-            val plan = CheckInPlanner.addValue(
-                item = item,
-                date = date,
-                existing = existing,
-                inputValue = value,
-                note = note,
-                timezone = settings.timezone,
-                isBackfill = BackfillPolicy.isBackfill(date, todayDay),
-                now = System.currentTimeMillis(),
-            )
+            val now = System.currentTimeMillis()
+            val backfill = BackfillPolicy.isBackfill(date, todayDay)
+            val plan = when (status) {
+                RecordStatus.PLANNED -> {
+                    if (!BackfillPolicy.canPlan(date, todayDay)) return@launch
+                    CheckInPlanner.planAhead(item, date, existing, value, note, settings.timezone, now)
+                }
+                RecordStatus.PARTIAL -> {
+                    if (!BackfillPolicy.canCheckIn(date, todayDay, settings.maxBackfillDays)) return@launch
+                    CheckInPlanner.addPartial(item, date, value, note, settings.timezone, backfill, now)
+                }
+                else -> {
+                    if (!BackfillPolicy.canCheckIn(date, todayDay, settings.maxBackfillDays)) return@launch
+                    CheckInPlanner.addValue(item, date, existing, value, note, settings.timezone, backfill, now)
+                }
+            }
             applyPlan(repository, plan)
+        }
+    }
+
+    /** 标记/取消跳过（休息日/请假登记；写入频率规则 skipDates，受 allowSkip 门控） */
+    fun toggleSkip(item: CheckItem) {
+        viewModelScope.launch {
+            val rule = repository.getFrequencyOf(item.id)
+            if (rule != null && !rule.allowSkip) return@launch
+            val base = rule ?: FrequencyRule(itemId = item.id)
+            val dates = if (date in base.skipDates) base.skipDates - date else base.skipDates + date
+            repository.saveFrequency(base.copy(skipDates = dates.sorted(), updatedAt = System.currentTimeMillis()))
         }
     }
 
@@ -112,22 +165,39 @@ class DateDetailViewModel(
         items: List<CheckItem>,
         settings: AppSettings,
         todayDay: Long,
+        rules: List<FrequencyRule>,
     ): DateDetailUiState {
         val clock = DayClock.from(settings)
         val canCheckIn = BackfillPolicy.canCheckIn(date, todayDay, settings.maxBackfillDays)
+        val canPlan = BackfillPolicy.canPlan(date, todayDay)
         val hint = when {
-            date > todayDay -> "未来日期暂不支持记录"
+            canPlan -> "未来日期：可创建「计划中」或标记跳过（请假），当天到来后可正常打卡"
             canCheckIn -> null
-            settings.maxBackfillDays <= 0 -> "补卡已禁用（可在设置中开启）"
-            else -> "超出补卡上限（${settings.maxBackfillDays} 天内）"
+            settings.maxBackfillDays <= 0 -> "补卡已禁用（可在设置中开启）；仍可标记跳过"
+            else -> "超出补卡上限（${settings.maxBackfillDays} 天内）；仍可标记跳过"
+        }
+        val rulesByItem = rules.associateBy { it.itemId }
+        val byItem = records.groupBy { it.itemId }
+        val pickerRows = items.map { item ->
+            val rule = rulesByItem[item.id]
+            val itemRecords = byItem[item.id].orEmpty()
+            PickerRow(
+                item = item,
+                skipped = rule?.allowSkip == true && date in rule.skipDates,
+                allowSkip = rule?.allowSkip ?: true,
+                doneCount = itemRecords.count { it.status == RecordStatus.DONE },
+                partialCount = itemRecords.count { it.status == RecordStatus.PARTIAL },
+                plannedCount = itemRecords.count { it.status == RecordStatus.PLANNED },
+            )
         }
         return DateDetailUiState(
             date = date,
             title = clock.format(date, "M月d日 EEE"),
             dayNote = note?.note.orEmpty(),
             records = records,
-            activeItems = items,
+            pickerRows = pickerRows,
             canCheckIn = canCheckIn,
+            canPlan = canPlan,
             checkInHint = hint,
             isToday = date == todayDay,
         )

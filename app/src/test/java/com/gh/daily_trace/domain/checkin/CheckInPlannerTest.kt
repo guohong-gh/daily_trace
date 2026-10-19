@@ -4,6 +4,7 @@ import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
 import com.gh.daily_trace.data.model.CheckType
 import com.gh.daily_trace.data.model.MultiRecordRule
+import com.gh.daily_trace.data.model.RecordStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,8 +21,14 @@ class CheckInPlannerTest {
         unit: String = "杯",
     ) = CheckItem(id = 7, name = "喝水", color = 0x11, icon = "💧", type = type, unit = unit, multiRecordRule = rule)
 
-    private fun record(id: Long, value: Double?, createdAt: Long = now, note: String = "") = CheckRecord(
-        id = id, itemId = 7, date = date, value = value, unit = "杯", note = note,
+    private fun record(
+        id: Long,
+        value: Double?,
+        createdAt: Long = now,
+        note: String = "",
+        status: RecordStatus = RecordStatus.DONE,
+    ) = CheckRecord(
+        id = id, itemId = 7, date = date, value = value, unit = "杯", note = note, status = status,
         createdAt = createdAt, updatedAt = createdAt,
         itemNameSnapshot = "喝水", itemColorSnapshot = 0x11, itemIconSnapshot = "💧",
     )
@@ -113,6 +120,86 @@ class CheckInPlannerTest {
         assertEquals(1, plan.updates.size)
         assertEquals("新备注", plan.updates[0].note)
         assertEquals(1.0, plan.updates[0].value!!, 0.0)
+    }
+
+    // ---------- 状态：部分完成 ----------
+
+    @Test
+    fun `部分完成始终追加且状态为PARTIAL`() {
+        val existing = listOf(record(1, 1.0))
+        val plan = CheckInPlanner.addPartial(item(), date, 0.5, "只做了一半", tz, false, now + 10)
+        assertEquals(1, plan.inserts.size)
+        assertTrue(plan.updates.isEmpty() && plan.deletes.isEmpty())
+        assertEquals(RecordStatus.PARTIAL, plan.inserts[0].status)
+        assertEquals(0.5, plan.inserts[0].value!!, 0.0)
+        assertEquals("只做了一半", plan.inserts[0].note)
+    }
+
+    @Test
+    fun `合并规则不覆盖部分完成记录`() {
+        val existing = listOf(
+            record(1, 1.0),
+            record(2, 0.5, createdAt = now + 5, status = RecordStatus.PARTIAL),
+        )
+        val plan = CheckInPlanner.addValue(item(rule = MultiRecordRule.MERGE), date, existing, 5.0, "", tz, false, now + 10)
+        assertEquals(1, plan.updates.size)
+        assertEquals(1L, plan.updates[0].id) // 目标是最新一条「完成」，而非更新的部分完成记录
+        assertEquals(RecordStatus.DONE, plan.updates[0].status)
+    }
+
+    @Test
+    fun `累加规则跳过部分完成记录`() {
+        val existing = listOf(
+            record(1, 1.5),
+            record(2, 1.0, createdAt = now + 5, status = RecordStatus.PARTIAL),
+        )
+        val plan = CheckInPlanner.addValue(item(rule = MultiRecordRule.ACCUMULATE), date, existing, 2.0, "", tz, false, now + 10)
+        assertEquals(1L, plan.updates[0].id)
+        assertEquals(3.5, plan.updates[0].value!!, 0.0)
+    }
+
+    @Test
+    fun `布尔切换忽略计划记录且只取消完成记录`() {
+        // 仅有计划 → 新增完成记录（不删除计划）
+        val planOnly = listOf(record(5, 1.0, status = RecordStatus.PLANNED))
+        val insertPlan = CheckInPlanner.toggleBoolean(item(CheckType.BOOLEAN), date, planOnly, tz, false, now)
+        assertEquals(1, insertPlan.inserts.size)
+        assertTrue(insertPlan.deletes.isEmpty())
+
+        // 完成 + 计划 → 只删除完成记录
+        val mixed = listOf(record(1, 1.0), record(5, 1.0, createdAt = now + 5, status = RecordStatus.PLANNED))
+        val deletePlan = CheckInPlanner.toggleBoolean(item(CheckType.BOOLEAN), date, mixed, tz, false, now)
+        assertEquals(listOf(1L), deletePlan.deletes)
+        assertTrue(deletePlan.inserts.isEmpty())
+    }
+
+    // ---------- 状态：计划中 ----------
+
+    @Test
+    fun `计划无既有计划时插入PLANNED且非补卡`() {
+        val existing = listOf(record(1, 1.0))
+        val plan = CheckInPlanner.planAhead(item(), date + 2, existing, 30.0, "明天跑", tz, now)
+        assertEquals(1, plan.inserts.size)
+        assertTrue(plan.updates.isEmpty())
+        assertEquals(RecordStatus.PLANNED, plan.inserts[0].status)
+        assertEquals(false, plan.inserts[0].isBackfill)
+        assertEquals(30.0, plan.inserts[0].value!!, 0.0)
+        assertEquals("明天跑", plan.inserts[0].note)
+    }
+
+    @Test
+    fun `计划同日更新最近一条计划且保留原值`() {
+        val existing = listOf(
+            record(1, 20.0, createdAt = now, status = RecordStatus.PLANNED),
+            record(2, 30.0, createdAt = now + 5, status = RecordStatus.PLANNED),
+        )
+        val plan = CheckInPlanner.planAhead(item(), date + 2, existing, null, "加量", tz, now + 10)
+        assertEquals(1, plan.updates.size)
+        assertEquals(2L, plan.updates[0].id)
+        assertEquals(30.0, plan.updates[0].value!!, 0.0)
+        assertEquals("加量", plan.updates[0].note)
+        assertEquals(RecordStatus.PLANNED, plan.updates[0].status)
+        assertTrue(plan.inserts.isEmpty())
     }
 
     // ---------- 删除与快照 ----------

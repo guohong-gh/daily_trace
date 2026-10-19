@@ -47,6 +47,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -55,10 +56,12 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
+import com.gh.daily_trace.data.model.RecordStatus
 import com.gh.daily_trace.di.Container
 import com.gh.daily_trace.ui.common.EmptyState
 import com.gh.daily_trace.ui.common.ItemBadge
 import com.gh.daily_trace.ui.common.RecordDialog
+import com.gh.daily_trace.ui.common.RecordStatusPill
 import com.gh.daily_trace.ui.common.SectionCard
 import com.gh.daily_trace.ui.common.SectionTitle
 import com.gh.daily_trace.ui.common.StatusPill
@@ -129,14 +132,13 @@ fun DateDetailScreen(viewModel: DateDetailViewModel, onBack: () -> Unit) {
             }
 
             item(key = "records-header") {
+                val skippedRows = state.pickerRows.filter { it.skipped }
                 Column {
                     SectionTitle("打卡记录（${state.records.size}）") {
-                        if (state.canCheckIn) {
-                            FilledTonalButton(onClick = { pickerOpen = true }) {
-                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(state.checkInLabel)
-                            }
+                        FilledTonalButton(onClick = { pickerOpen = true }) {
+                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(state.checkInLabel)
                         }
                     }
                     state.checkInHint?.let {
@@ -145,6 +147,14 @@ fun DateDetailScreen(viewModel: DateDetailViewModel, onBack: () -> Unit) {
                             it,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (skippedRows.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "已跳过：${skippedRows.joinToString("、") { it.item.name }}（不计入完成率，不中断连续）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
                         )
                     }
                 }
@@ -156,7 +166,11 @@ fun DateDetailScreen(viewModel: DateDetailViewModel, onBack: () -> Unit) {
                         EmptyState(
                             emoji = "🗒️",
                             title = "当天暂无打卡记录",
-                            description = if (state.canCheckIn) "点上方「${state.checkInLabel}」补记一笔" else null,
+                            description = when {
+                                state.canPlan -> "点上方「添加计划」为这天做准备"
+                                state.canRecord -> "点上方「${state.checkInLabel}」补记一笔"
+                                else -> null
+                            },
                         )
                     }
                 }
@@ -179,28 +193,59 @@ fun DateDetailScreen(viewModel: DateDetailViewModel, onBack: () -> Unit) {
             title = { Text(state.checkInLabel) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    if (state.activeItems.isEmpty()) {
+                    when {
+                        state.canPlan -> PickerHint("未来日期：点选项创建「计划中」，或右侧「跳过」登记请假/休息日")
+                        !state.canRecord -> PickerHint("超出补卡上限，仅可标记跳过")
+                    }
+                    if (state.pickerRows.isEmpty()) {
                         Text("没有可用的打卡选项")
                     }
-                    state.activeItems.forEach { item ->
+                    state.pickerRows.forEach { row ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    recordDialogItem = item
-                                    pickerOpen = false
-                                }
-                                .padding(vertical = 10.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            ItemBadge(icon = item.icon, color = item.color, size = 32.dp, iconSize = 16.sp)
-                            Spacer(Modifier.width(12.dp))
-                            Text(item.name, style = MaterialTheme.typography.bodyLarge)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .clickable(enabled = state.canRecord) {
+                                        recordDialogItem = row.item
+                                        pickerOpen = false
+                                    }
+                                    .padding(vertical = 10.dp),
+                            ) {
+                                ItemBadge(icon = row.item.icon, color = row.item.color, size = 32.dp, iconSize = 16.sp)
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        row.item.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = if (state.canRecord) {
+                                            MaterialTheme.colorScheme.onSurface
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    )
+                                    if (row.stateText.isNotBlank()) {
+                                        Text(
+                                            row.stateText,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                            TextButton(
+                                onClick = { viewModel.toggleSkip(row.item) },
+                                enabled = row.allowSkip,
+                            ) { Text(if (row.skipped) "取消跳过" else "跳过") }
                         }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { pickerOpen = false }) { Text("取消") } },
+            confirmButton = { TextButton(onClick = { pickerOpen = false }) { Text("关闭") } },
         )
     }
 
@@ -208,13 +253,30 @@ fun DateDetailScreen(viewModel: DateDetailViewModel, onBack: () -> Unit) {
         RecordDialog(
             item = item,
             onDismiss = { recordDialogItem = null },
-            onConfirm = { value, note ->
-                viewModel.addRecord(item, value, note)
+            onConfirm = { value, note, status ->
+                viewModel.addRecord(item, value, note, status)
                 recordDialogItem = null
-                scope.launch { snackbarHostState.showSnackbar("已记录") }
+                val message = when (status) {
+                    RecordStatus.PLANNED -> "已创建计划"
+                    RecordStatus.PARTIAL -> "已记录（部分完成）"
+                    else -> "已记录"
+                }
+                scope.launch { snackbarHostState.showSnackbar(message) }
             },
+            allowPartial = !state.canPlan,
+            planMode = state.canPlan,
         )
     }
+}
+
+@Composable
+private fun PickerHint(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 4.dp),
+    )
 }
 
 @Composable
@@ -266,6 +328,7 @@ private fun RecordCard(record: CheckRecord, onDelete: () -> Unit) {
                     StatusPill("补卡")
                     Spacer(Modifier.width(4.dp))
                 }
+                RecordStatusPill(record.status)
                 IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Filled.Delete,

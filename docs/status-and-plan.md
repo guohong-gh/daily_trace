@@ -106,6 +106,9 @@ M6 发布（交付细节）：
 | D22 | 2026-10-17 | 应用名改回「日迹」（M11 执行） | 用户拍板；改 strings.xml 显示名，包名保持 com.gh.daily_trace |
 | D23 | 2026-10-17 | 提醒每周天数拆分到 `Reminder.daysOfWeek`；DB v1→v2 迁移时把旧 WEEKLY 提醒的星期从频率规则复制过来 | 原共享 `FrequencyRule.daysOfWeek`，编辑频率或提醒会互相覆盖并污染统计口径（M7-1） |
 | D24 | 2026-10-17 | CUSTOM 频率 = 每隔 N 天（1..90），锚点 = 保存当天；修改 N 时锚点重置为今天，其他编辑保留；缺参数退化为每天 | 语义可确定、可统计（M7-1，`StatsCalculator.isExpectedDay`） |
+| D25 | 2026-10-19 | 「跳过」统一写 `rule.skipDates`（休息日/请假登记）；UI 不再新建 `status=SKIPPED` 记录（旧数据仍参与统计）；跳过登记不受补卡窗口限制，但受 allowSkip 门控 | 日级语义与统计口径一致（D16）；可撤销、不产生记录噪音；未来日期可提前登记请假（M7-3） |
+| D26 | 2026-10-19 | 「部分完成」= 始终追加 `status=PARTIAL` 记录，不参与 MERGE/ACCUMULATE 合并目标 | 部分完成是过程量，合并语义模糊；合并目标只认最新一条 DONE，避免覆盖与状态污染（M7-2，`CheckInPlanner.latestDoneOf`） |
+| D27 | 2026-10-19 | 「计划中」仅限未来日期（`date > today`），同日同选项重复计划更新最近一条（upsert，`planAhead`）；`isBackfill=false`；布尔快速打卡与合并规则均忽略非 DONE 记录 | 与 D9 补卡窗口无冲突；防计划重复堆积；计划不干扰完成判定（M7-2，`BackfillPolicy.canPlan`） |
 
 ## 五、假设（因需求文档缺失而采用）
 
@@ -240,3 +243,21 @@ M6 手动验收（通过）：
 - `lintDebug` 无错误（17 条警告与基线一致，无新增）；`assembleRelease`（R8）成功，release 包 1.9MB 覆盖安装冒烟通过（截图 m7-06）。
 - `assembleDebug` 成功；模拟器覆盖安装旧库（v1 真实数据）→ 迁移成功：4 选项 / 4 条记录 / 旧提醒完好，logcat 无 FATAL / SQLiteException。
 - 走查截图 `docs/screenshots/m7-01..05`：四种类型切换与条件 UI、保存后重进回显。拉库校验：`frequency_rules`(Dur1) = DAYS_OF_WEEK `1,3,5`；`reminders`(Dur1) = WEEKLY `1,6`；提醒与频率星期互不影响。
+
+## 十一、M7-2/M7-3 状态录入与休息日登记批次（2026-10-19）
+
+范围：任务书 M7 第 2、3 项——状态录入（部分完成 / 跳过 / 计划中）与休息日 / 跳过 / 请假登记入口；其余 M7 项（统计总量、日历圆点）留待后续批次，进度矩阵见 `docs/spec-gap.md`。
+
+交付内容：
+1. 「部分完成」（D26）：`RecordDialog` 新增「完成 / 部分完成」状态选项；`CheckInPlanner.addPartial` 始终追加 `status=PARTIAL` 记录；合并/累加目标改取最新一条 DONE（`latestDoneOf`），布尔「全部取消」仅取消 DONE 记录；今日页 `totalValue` 只统计 DONE/PARTIAL。
+2. 「跳过」（D25）：统一写 `rule.skipDates`——今日页展开区「跳过今天 / 取消跳过」，日期详情选择器逐项「跳过 / 取消跳过」（任意日期，含未来请假）；受 `allowSkip` 门控；今日页副标题「今日已跳过 · 不计完成率」，日期详情「已跳过：…（不计入完成率，不中断连续）」摘要行。
+3. 「计划中」（D27）：`BackfillPolicy.canPlan`（仅 `date > today`）；`CheckInPlanner.planAhead`（同日 upsert、`isBackfill=false`）；日期详情未来日期按钮变「添加计划」、对话框切计划模式（计划数值可留空）；记录卡新增状态胶囊（部分完成 / 计划 / 跳过）；今日页当天有未完成计划时提示「计划：…」。
+4. `RecordStatusPill` 提取为公共组件（`ui/common/AppUi.kt`）；`PickerRow`（选择器行状态：已跳过 / 已完成 / 部分完成 / 计划中）。
+
+验证：
+- `testDebugUnitTest` 113/113 全绿（新增 8：canPlan 窗口；部分完成追加/合并与累加目标跳过 PARTIAL/布尔忽略计划；计划 upsert 与保留原值；partial+plan+skip 端到端落库）。
+- `lintDebug` 0 errors / 17 warnings（与基线一致，无新增）；`assembleRelease`（R8）成功并覆盖安装冒烟。
+- 模拟器走查（release 包）截图 `docs/screenshots/m7-07..15`：部分完成对话框与记录行胶囊、跳过今天与撤销、未来日期添加计划、选择器逐项跳过与摘要行、今日页「计划：」提示。
+- 拉库校验（debug 包 + run-as）：`check_records` (Val1) = `PARTIAL 42.0 @20745`、`PLANNED 60.0 @20746 isBackfill=0`；`frequency_rules`(Dur1) `skipDates='20745'`、`allowSkip=1`。
+
+
