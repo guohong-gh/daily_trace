@@ -4,11 +4,9 @@ import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
 import com.gh.daily_trace.data.model.CheckType
 import com.gh.daily_trace.data.model.DayNote
-import com.gh.daily_trace.data.model.FilterMode
 import com.gh.daily_trace.data.model.FilterView
 import com.gh.daily_trace.data.model.FrequencyRule
 import com.gh.daily_trace.data.model.RecordStatus
-import com.gh.daily_trace.domain.filter.FilterMatcher
 
 /** 单日标记：逐选项圆点色（快照）+ 溢出数（「+N」）+ 备注标记 */
 data class DayMarks(
@@ -66,15 +64,6 @@ object CalendarMarks {
         val itemById = items.associateBy { it.id }
         val orderById = items.withIndex().associate { (index, item) -> item.id to index }
 
-        fun itemPassesFilter(itemId: Long): Boolean {
-            if (filter == null) return true
-            // 选项已被彻底清除（软删除仍在 items 中）时无法参与选项/分组匹配；
-            // 与 FilterMatcher.itemMatches 一致：ALL 模式或未选择任何范围时视为命中
-            val item = itemById[itemId]
-                ?: return filter.mode == FilterMode.ALL || (filter.itemIds.isEmpty() && filter.groupIds.isEmpty())
-            return FilterMatcher.itemMatches(item, filter)
-        }
-
         val recordsByDay = records.groupBy { it.date }
         val noteByDay = notes.associateBy { it.date }
 
@@ -82,7 +71,7 @@ object CalendarMarks {
         val entriesByDay = recordsByDay
             .mapValues { (_, dayRecords) ->
                 dayRecords
-                    .filter { itemPassesFilter(it.itemId) }
+                    .filter { ItemScope.passes(it.itemId, itemById, filter) }
                     .sortedWith(
                         compareBy(
                             { orderById[it.itemId] ?: Int.MAX_VALUE },
@@ -111,7 +100,8 @@ object CalendarMarks {
             .filter { it.allowSkip }
             .sortedBy { orderById[it.itemId] ?: Int.MAX_VALUE }
             .forEach { rule ->
-                val name = itemById[rule.itemId]?.name?.takeIf { itemPassesFilter(rule.itemId) } ?: return@forEach
+                val name = itemById[rule.itemId]?.name
+                    ?.takeIf { ItemScope.passes(rule.itemId, itemById, filter) } ?: return@forEach
                 rule.skipDates.forEach { day ->
                     skipNamesByDay.getOrPut(day) { mutableListOf() }.add(name)
                 }
@@ -124,7 +114,7 @@ object CalendarMarks {
                 dayRecords
                     .filter {
                         (it.status == RecordStatus.DONE || it.status == RecordStatus.PARTIAL) &&
-                            itemPassesFilter(it.itemId)
+                            ItemScope.passes(it.itemId, itemById, filter)
                     }
                     .sortedWith(compareBy({ it.createdAt }, { it.id }))
                     .forEach { colorByItem[it.itemId] = it.itemColorSnapshot }

@@ -23,7 +23,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -54,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,14 +73,20 @@ import com.gh.daily_trace.data.model.RecordStatus
 import com.gh.daily_trace.di.Container
 import com.gh.daily_trace.domain.calendar.DayMarks
 import com.gh.daily_trace.domain.calendar.DaySummary
+import com.gh.daily_trace.domain.calendar.HeatRow
 import com.gh.daily_trace.domain.calendar.SummaryEntry
 import com.gh.daily_trace.domain.calendar.WeekCellStatus
 import com.gh.daily_trace.domain.calendar.WeekRow
+import com.gh.daily_trace.domain.calendar.YearGrid
+import com.gh.daily_trace.domain.calendar.YearHeatmap
+import com.gh.daily_trace.domain.calendar.YearSummary
 import com.gh.daily_trace.domain.time.DayClock
 import com.gh.daily_trace.ui.common.ItemBadge
 import com.gh.daily_trace.ui.common.RecordStatusPill
 import com.gh.daily_trace.ui.common.StatusPill
 import com.gh.daily_trace.ui.common.formatValue
+import kotlinx.coroutines.flow.first
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -90,6 +100,12 @@ private const val PAGE_ANIMATE_RANGE = 2
 private val WEEK_LABEL_WIDTH = 84.dp
 
 private val WEEKDAY_LABELS = listOf("一", "二", "三", "四", "五", "六", "日")
+
+/** 年视图：行首月份栏宽 / 单元格边长与间距 / 单行高（今天行自动滚动换算用） */
+private val YEAR_GUTTER_WIDTH = 30.dp
+private val YEAR_CELL_SIZE = 32.dp
+private val YEAR_CELL_GAP = 3.dp
+private val YEAR_ROW_HEIGHT = YEAR_CELL_SIZE + YEAR_CELL_GAP
 
 @Composable
 fun CalendarRoute(
@@ -169,6 +185,13 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
                     onOpenDate = onOpenDate,
                     onLongPressDate = { summaryDate = it },
                 )
+                CalendarViewMode.YEAR -> YearView(
+                    state = state,
+                    viewModel = viewModel,
+                    onOpenDate = onOpenDate,
+                    onLongPressDate = { summaryDate = it },
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
@@ -202,7 +225,7 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
 /** 视图 tab（M8）：点击切换、不横滑（横滑留给各视图自己的翻页） */
 @Composable
 private fun CalendarModeTabs(selected: CalendarViewMode, onSelect: (CalendarViewMode) -> Unit) {
-    val tabs = listOf(CalendarViewMode.MONTH to "月", CalendarViewMode.WEEK to "周")
+    val tabs = listOf(CalendarViewMode.MONTH to "月", CalendarViewMode.WEEK to "周", CalendarViewMode.YEAR to "年")
     PrimaryTabRow(selectedTabIndex = tabs.indexOfFirst { it.first == selected }.coerceAtLeast(0)) {
         tabs.forEach { (mode, label) ->
             Tab(
@@ -558,6 +581,257 @@ private fun WeekLegendItem(status: WeekCellStatus, label: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+// ---------- 年视图 ----------
+
+@Composable
+private fun YearView(
+    state: CalendarUiState,
+    viewModel: CalendarViewModel,
+    onOpenDate: (Long) -> Unit,
+    onLongPressDate: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val pagerState = rememberPagerState(
+        initialPage = yearToPage(state.yearAnchor.coerceIn(CALENDAR_MIN_YEAR, CALENDAR_MAX_YEAR)),
+        pageCount = { CALENDAR_YEAR_COUNT },
+    )
+    // 滑动停稳 → 同步 VM 年份（驱动数据窗口与标题）
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }
+            .collect { page -> viewModel.setYear(pageToYear(page)) }
+    }
+    // VM 年份变化（箭头 / 今天）→ 定位 pager
+    LaunchedEffect(state.yearAnchor) {
+        val target = yearToPage(state.yearAnchor.coerceIn(CALENDAR_MIN_YEAR, CALENDAR_MAX_YEAR))
+        when {
+            pagerState.currentPage == target -> Unit
+            abs(target - pagerState.currentPage) <= PAGE_ANIMATE_RANGE ->
+                pagerState.animateScrollToPage(target)
+            else -> pagerState.scrollToPage(target)
+        }
+    }
+
+    Card(modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                IconButton(onClick = { viewModel.prevYear() }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一年")
+                }
+                Text(
+                    state.yearTitle,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { viewModel.nextYear() }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一年")
+                }
+            }
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) { page ->
+                val year = pageToYear(page)
+                YearPage(
+                    year = year,
+                    today = state.today,
+                    weekStart = state.weekStart,
+                    grid = state.yearGridsByYear[year],
+                    summaries = state.summaries,
+                    onOpenDate = onOpenDate,
+                    onLongPressDate = onLongPressDate,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            YearLegend(summary = state.yearGridsByYear[state.yearAnchor]?.summary)
+        }
+    }
+}
+
+@Composable
+private fun YearPage(
+    year: Int,
+    today: Long,
+    weekStart: DayOfWeek,
+    grid: YearGrid?,
+    summaries: Map<Long, DaySummary>,
+    onOpenDate: (Long) -> Unit,
+    onLongPressDate: (Long) -> Unit,
+) {
+    if (grid == null) {
+        Box(Modifier.fillMaxSize())
+        return
+    }
+    val scrollState = rememberScrollState()
+    val rowPx = with(LocalDensity.current) { YEAR_ROW_HEIGHT.toPx() }
+    // 打开当年时滚到今天所在行附近（换年才重置）
+    LaunchedEffect(year) {
+        val rowIndex = grid.rows.indexOfFirst { row -> row.cells.any { it.inYear && it.date == today } }
+        if (rowIndex >= 0) {
+            snapshotFlow { scrollState.viewportSize }.first { it > 0 }
+            val target = (rowIndex * rowPx - scrollState.viewportSize / 2f + rowPx / 2f)
+                .toInt()
+                .coerceAtLeast(0)
+            scrollState.scrollTo(target)
+        }
+    }
+    // 表头星期随周起始设置轮转
+    val labels = (0 until 7).map { WEEKDAY_LABELS[(weekStart.value - 1 + it) % 7] }
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Spacer(Modifier.width(YEAR_GUTTER_WIDTH))
+            labels.forEachIndexed { index, label ->
+                if (index > 0) Spacer(Modifier.width(YEAR_CELL_GAP))
+                Text(
+                    label,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(YEAR_CELL_SIZE),
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(scrollState),
+        ) {
+            grid.rows.forEach { row ->
+                YearRowView(
+                    row = row,
+                    today = today,
+                    summaries = summaries,
+                    onOpenDate = onOpenDate,
+                    onLongPressDate = onLongPressDate,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun YearRowView(
+    row: HeatRow,
+    today: Long,
+    summaries: Map<Long, DaySummary>,
+    onOpenDate: (Long) -> Unit,
+    onLongPressDate: (Long) -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(YEAR_ROW_HEIGHT),
+    ) {
+        Box(Modifier.width(YEAR_GUTTER_WIDTH)) {
+            row.monthStart?.let { month ->
+                Text(
+                    "${month}月",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        val shape = RoundedCornerShape(6.dp)
+        row.cells.forEachIndexed { index, cell ->
+            if (index > 0) Spacer(Modifier.width(YEAR_CELL_GAP))
+            if (!cell.inYear) {
+                Spacer(Modifier.size(YEAR_CELL_SIZE))
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(YEAR_CELL_SIZE)
+                        .clip(shape)
+                        .background(heatColor(cell.level))
+                        .then(
+                            if (cell.date == today) {
+                                Modifier.border(2.dp, MaterialTheme.colorScheme.tertiary, shape)
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .combinedClickable(
+                            onLongClick = if (summaries.containsKey(cell.date)) {
+                                ({ onLongPressDate(cell.date) })
+                            } else {
+                                null
+                            },
+                            onClick = { onOpenDate(cell.date) },
+                        ),
+                )
+            }
+        }
+    }
+}
+
+/** 热力图色阶：0 = 淡灰空档；1..4 = primary 由浅到深（4 = 4 项及以上） */
+@Composable
+private fun heatColor(level: Int): Color = when (level) {
+    0 -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+    1 -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+    2 -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+    3 -> MaterialTheme.colorScheme.primary.copy(alpha = 0.78f)
+    else -> MaterialTheme.colorScheme.primary
+}
+
+/** 年视图底部：强度图例 + 「环 = 今天」+ 全年汇总（筛选内） */
+@Composable
+private fun YearLegend(summary: YearSummary?) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            "少",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(4.dp))
+        (0..YearHeatmap.MAX_LEVEL).forEach { level ->
+            Box(
+                Modifier
+                    .size(14.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(heatColor(level))
+            )
+            Spacer(Modifier.width(2.dp))
+        }
+        Text(
+            "多",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            "环 = 今天",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    Spacer(Modifier.height(2.dp))
+    Text(
+        if (summary != null) {
+            "全年完成 ${summary.doneCount} 项次 · 打卡 ${summary.activeDays} 天"
+        } else {
+            "暂无数据"
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 // ---------- 共用组件 ----------
