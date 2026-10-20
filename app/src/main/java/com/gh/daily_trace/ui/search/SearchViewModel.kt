@@ -9,6 +9,7 @@ import com.gh.daily_trace.domain.search.SearchDatePreset
 import com.gh.daily_trace.domain.search.SearchDateRange
 import com.gh.daily_trace.domain.search.normalizeSearchRange
 import com.gh.daily_trace.domain.search.resolveSearchRange
+import com.gh.daily_trace.domain.time.DateDisplay
 import com.gh.daily_trace.domain.time.DayClock
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,16 +81,18 @@ class SearchViewModel(private val repository: DailyTraceRepository) : ViewModel(
         viewModelScope.launch {
             criteria.debounce(300).distinctUntilChanged().collectLatest { c ->
                 val q = c.query.trim()
-                val clock = DayClock.from(repository.getSettings())
+                val settings = repository.getSettings()
+                val clock = DayClock.from(settings)
+                val dateDisplay = DateDisplay.from(settings)
                 val range = resolveSearchRange(c.preset, clock.today(), c.customFrom, c.customTo)
                 if (q.isEmpty()) {
                     results.value = Results(range = range)
                     return@collectLatest
                 }
                 val recordHits = repository.searchRecords(q, range.from, range.to)
-                    .map { RecordHit(it, clock.format(it.date, "M月d日 EEE")) }
+                    .map { RecordHit(it, dateDisplay.short(it.date)) }
                 val noteHits = repository.searchDayNotes(q, range.from, range.to)
-                    .map { NoteHit(it, clock.format(it.date, "M月d日 EEE")) }
+                    .map { NoteHit(it, dateDisplay.short(it.date)) }
                 results.value = Results(range, recordHits, noteHits, searched = true)
             }
         }

@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
         FrequencyRule::class,
         AppSettings::class
     ],
-    version = 4,
+    version = 5,
     // 导出 schema 至 app/schemas，后续升级编写显式 Migration，不做隐式破坏性迁移
     exportSchema = true
 )
@@ -105,6 +105,18 @@ abstract class DailyTraceDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v4 → v5（M10-4 日期格式 / 日期语言）：
+         * app_settings 增加 dateLanguage（默认 ZH）与 dateFormat（默认 AUTO），
+         * 旧数据保持此前的中文日期显示。
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE app_settings ADD COLUMN dateLanguage TEXT NOT NULL DEFAULT 'ZH'")
+                db.execSQL("ALTER TABLE app_settings ADD COLUMN dateFormat TEXT NOT NULL DEFAULT 'AUTO'")
+            }
+        }
+
         private fun build(context: Context): DailyTraceDatabase {
             // onCreate 回调在数据库首次打开（build 返回之后）才触发，届时 db 已初始化
             lateinit var db: DailyTraceDatabase
@@ -113,7 +125,7 @@ abstract class DailyTraceDatabase : RoomDatabase() {
                 DailyTraceDatabase::class.java,
                 "daily_trace.db"
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .addCallback(object : Callback() {
                     override fun onCreate(supportDb: SupportSQLiteDatabase) {
                         super.onCreate(supportDb)

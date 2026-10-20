@@ -19,6 +19,10 @@ data class AppSettings(
     val startOfDay: Int = 4,
     /** 判定"今天"的时区 ID */
     val timezone: String = "Asia/Shanghai",
+    /** 日期显示语言（仅日期标签；默认中文，保持既有显示） */
+    val dateLanguage: DateLanguage = DateLanguage.ZH,
+    /** 日期显示格式；AUTO = 跟随日期语言 */
+    val dateFormat: DateFormat = DateFormat.AUTO,
     val colorBlindMode: Boolean = false,
     /** 允许补卡的最大天数（0 = 禁止补卡） */
     val maxBackfillDays: Int = 7,

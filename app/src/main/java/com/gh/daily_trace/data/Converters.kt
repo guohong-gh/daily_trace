@@ -2,6 +2,8 @@ package com.gh.daily_trace.data
 
 import androidx.room.TypeConverter
 import com.gh.daily_trace.data.model.CheckType
+import com.gh.daily_trace.data.model.DateFormat
+import com.gh.daily_trace.data.model.DateLanguage
 import com.gh.daily_trace.data.model.DayFilter
 import com.gh.daily_trace.data.model.FilterLogic
 import com.gh.daily_trace.data.model.FilterMode
@@ -44,6 +46,12 @@ class Converters {
 
     @TypeConverter fun fromThemeMode(v: ThemeMode): String = v.name
     @TypeConverter fun toThemeMode(v: String): ThemeMode = ThemeMode.valueOf(v)
+
+    @TypeConverter fun fromDateLanguage(v: DateLanguage): String = v.name
+    @TypeConverter fun toDateLanguage(v: String): DateLanguage = DateLanguage.valueOf(v)
+
+    @TypeConverter fun fromDateFormat(v: DateFormat): String = v.name
+    @TypeConverter fun toDateFormat(v: String): DateFormat = DateFormat.valueOf(v)
 
     @TypeConverter fun fromLongList(v: List<Long>): String = v.joinToString(",")
 

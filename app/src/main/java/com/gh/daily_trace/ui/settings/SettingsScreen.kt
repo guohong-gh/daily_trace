@@ -55,9 +55,13 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.gh.daily_trace.data.model.DateFormat
+import com.gh.daily_trace.data.model.DateLanguage
 import com.gh.daily_trace.data.model.ThemeMode
 import com.gh.daily_trace.di.Container
 import com.gh.daily_trace.domain.reminder.ReminderPause
+import com.gh.daily_trace.domain.time.DateDisplay
+import com.gh.daily_trace.domain.time.DayClock
 import com.gh.daily_trace.ui.common.SectionCard
 import com.gh.daily_trace.ui.common.SwitchRow
 import kotlinx.coroutines.delay
@@ -103,6 +107,12 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     // 提醒时间与逻辑日均按 settings.timezone 解释，暂停展示也保持一致
     val pauseZone = remember(settings.timezone) {
         runCatching { ZoneId.of(settings.timezone) }.getOrDefault(ZoneId.systemDefault())
+    }
+    val datePreview = remember(settings.dateLanguage, settings.dateFormat) {
+        DateDisplay(settings.dateLanguage, settings.dateFormat)
+    }
+    val previewDay = remember(settings.timezone, settings.startOfDay) {
+        DayClock.from(settings).today()
     }
 
     LaunchedEffect(settings.pausedUntil) {
@@ -190,6 +200,45 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     checked = settings.dynamicColor && dynamicSupported,
                     enabled = dynamicSupported,
                     onCheckedChange = { v -> viewModel.update { it.copy(dynamicColor = v) } },
+                )
+            }
+
+            SectionCard(title = "日期与语言") {
+                SettingLabel("日期语言")
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DateLanguage.entries.forEach { language ->
+                        FilterChip(
+                            selected = settings.dateLanguage == language,
+                            onClick = { viewModel.update { it.copy(dateLanguage = language) } },
+                            label = { Text(dateLanguageLabel(language)) },
+                        )
+                    }
+                }
+                SettingLabel("日期格式")
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DateFormat.entries.forEach { format ->
+                        FilterChip(
+                            selected = settings.dateFormat == format,
+                            onClick = { viewModel.update { it.copy(dateFormat = format) } },
+                            label = { Text(dateFormatLabel(format)) },
+                        )
+                    }
+                }
+                Text(
+                    "预览：${datePreview.short(previewDay)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    "仅影响日期显示，应用界面仍为中文。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
@@ -532,6 +581,19 @@ private fun themeLabel(mode: ThemeMode): String = when (mode) {
     ThemeMode.SYSTEM -> "跟随系统"
     ThemeMode.LIGHT -> "浅色"
     ThemeMode.DARK -> "深色"
+}
+
+private fun dateLanguageLabel(language: DateLanguage): String = when (language) {
+    DateLanguage.SYSTEM -> "跟随系统"
+    DateLanguage.ZH -> "中文"
+    DateLanguage.EN -> "English"
+}
+
+private fun dateFormatLabel(format: DateFormat): String = when (format) {
+    DateFormat.AUTO -> "跟随语言"
+    DateFormat.YMD -> "年-月-日"
+    DateFormat.MDY -> "月/日/年"
+    DateFormat.DMY -> "日/月/年"
 }
 
 private fun weekdayLabel(d: Int): String = when (d) {

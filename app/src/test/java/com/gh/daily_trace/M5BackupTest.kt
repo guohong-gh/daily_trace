@@ -13,6 +13,8 @@ import com.gh.daily_trace.data.model.AppSettings
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
 import com.gh.daily_trace.data.model.CheckType
+import com.gh.daily_trace.data.model.DateFormat
+import com.gh.daily_trace.data.model.DateLanguage
 import com.gh.daily_trace.data.model.DayFilter
 import com.gh.daily_trace.data.model.DayNote
 import com.gh.daily_trace.data.model.FilterLogic
@@ -29,6 +31,7 @@ import com.gh.daily_trace.data.model.RepeatType
 import com.gh.daily_trace.data.model.ThemeMode
 import com.gh.daily_trace.data.repository.DailyTraceRepository
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -131,6 +134,7 @@ class M5BackupTest {
         db.appSettingsDao().upsert(
             AppSettings(
                 theme = ThemeMode.DARK, dynamicColor = false, weekStart = 7, startOfDay = 6,
+                dateLanguage = DateLanguage.EN, dateFormat = DateFormat.DMY,
                 colorBlindMode = true, maxBackfillDays = 30, partialCountsAsDone = false,
                 autoBackup = true, autoBackupIntervalDays = 3,
                 pausedUntil = 1_700_003_600_000L,
@@ -168,6 +172,9 @@ class M5BackupTest {
         assertEquals(rulesBefore, db.frequencyRuleDao().getAll())
         assertEquals(viewsBefore, db.filterViewDao().getAll())
         assertEquals(settingsBefore, db.appSettingsDao().get())
+        val restoredSettings = db.appSettingsDao().get()!!
+        assertEquals(DateLanguage.EN, restoredSettings.dateLanguage)
+        assertEquals(DateFormat.DMY, restoredSettings.dateFormat)
         val reminder = db.reminderDao().getForItem(itemsBefore.first { it.name == "跑步" }.id)
         assertNotNull(reminder)
         assertEquals(510, reminder!!.time)
@@ -176,6 +183,22 @@ class M5BackupTest {
         assertEquals(1320, reminder.dndStart)
         assertEquals(420, reminder.dndEnd)
         assertEquals(false, reminder.enabled)
+    }
+
+    @Test
+    fun legacyBackupWithoutDateSettingsFallsBackToChineseAuto() = runBlocking {
+        seedAll()
+        val root = JSONObject(backupManager.exportJson())
+        root.getJSONObject("settings").apply {
+            remove("dateLanguage")
+            remove("dateFormat")
+        }
+
+        backupManager.importJson(root.toString())
+
+        val restored = db.appSettingsDao().get()!!
+        assertEquals(DateLanguage.ZH, restored.dateLanguage)
+        assertEquals(DateFormat.AUTO, restored.dateFormat)
     }
 
     @Test

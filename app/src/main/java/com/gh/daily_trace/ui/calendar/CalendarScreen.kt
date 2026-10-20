@@ -85,17 +85,15 @@ import com.gh.daily_trace.domain.calendar.WeekRow
 import com.gh.daily_trace.domain.calendar.YearGrid
 import com.gh.daily_trace.domain.calendar.YearHeatmap
 import com.gh.daily_trace.domain.calendar.YearSummary
+import com.gh.daily_trace.domain.time.DateDisplay
 import com.gh.daily_trace.domain.time.DayClock
 import com.gh.daily_trace.ui.common.ItemBadge
 import com.gh.daily_trace.ui.common.RecordStatusPill
 import com.gh.daily_trace.ui.common.StatusPill
 import com.gh.daily_trace.ui.common.formatValue
 import kotlinx.coroutines.flow.first
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import kotlin.math.abs
 
 /** 远距离跳月（年月选择器/今天）直接定位，避免长动画；近距离（箭头/滑动邻月）平滑翻页 */
@@ -103,8 +101,6 @@ private const val PAGE_ANIMATE_RANGE = 2
 
 /** 周视图行首列宽（色块 + 名称） */
 private val WEEK_LABEL_WIDTH = 84.dp
-
-private val WEEKDAY_LABELS = listOf("一", "二", "三", "四", "五", "六", "日")
 
 /** 年视图：行首月份栏宽 / 单元格边长与间距 / 单行高（今天行自动滚动换算用） */
 private val YEAR_GUTTER_WIDTH = 30.dp
@@ -212,7 +208,7 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
     val date = summaryDate
     if (date != null && summary != null) {
         DaySummaryDialog(
-            date = date,
+            dateLabel = state.dateDisplay.short(date),
             summary = summary,
             onOpenDetail = {
                 summaryDate = null
@@ -225,6 +221,7 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
     if (pickerOpen) {
         MonthPickerDialog(
             current = state.month,
+            dateDisplay = state.dateDisplay,
             onSelect = { month ->
                 pickerOpen = false
                 viewModel.setMonth(month)
@@ -439,6 +436,7 @@ private fun WeekView(
                     anchor = pageAnchor,
                     today = state.today,
                     rows = state.weekRowsByAnchor[pageAnchor].orEmpty(),
+                    weekdayHeaders = state.weekHeaders,
                     summaries = state.summaries,
                     onOpenDate = onOpenDate,
                     onLongPressDate = onLongPressDate,
@@ -467,6 +465,7 @@ private fun WeekPage(
     anchor: Long,
     today: Long,
     rows: List<WeekRow>,
+    weekdayHeaders: List<String>,
     summaries: Map<Long, DaySummary>,
     onOpenDate: (Long) -> Unit,
     onLongPressDate: (Long) -> Unit,
@@ -475,10 +474,10 @@ private fun WeekPage(
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth()) {
             Spacer(Modifier.width(WEEK_LABEL_WIDTH))
-            days.forEach { day ->
+            days.forEachIndexed { index, day ->
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        WEEKDAY_LABELS[LocalDate.ofEpochDay(day).dayOfWeek.value - 1],
+                        weekdayHeaders.getOrNull(index).orEmpty(),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -662,7 +661,8 @@ private fun YearView(
                 YearPage(
                     year = year,
                     today = state.today,
-                    weekStart = state.weekStart,
+                    weekHeaders = state.weekHeaders,
+                    dateDisplay = state.dateDisplay,
                     grid = state.yearGridsByYear[year],
                     summaries = state.summaries,
                     onOpenDate = onOpenDate,
@@ -679,7 +679,8 @@ private fun YearView(
 private fun YearPage(
     year: Int,
     today: Long,
-    weekStart: DayOfWeek,
+    weekHeaders: List<String>,
+    dateDisplay: DateDisplay,
     grid: YearGrid?,
     summaries: Map<Long, DaySummary>,
     onOpenDate: (Long) -> Unit,
@@ -702,8 +703,8 @@ private fun YearPage(
             scrollState.scrollTo(target)
         }
     }
-    // 表头星期随周起始设置轮转
-    val labels = (0 until 7).map { WEEKDAY_LABELS[(weekStart.value - 1 + it) % 7] }
+    // 表头星期随周起始设置轮转（文案按日期语言）
+    val labels = weekHeaders
     Column(Modifier.fillMaxSize()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -733,6 +734,7 @@ private fun YearPage(
                 YearRowView(
                     row = row,
                     today = today,
+                    dateDisplay = dateDisplay,
                     summaries = summaries,
                     onOpenDate = onOpenDate,
                     onLongPressDate = onLongPressDate,
@@ -746,6 +748,7 @@ private fun YearPage(
 private fun YearRowView(
     row: HeatRow,
     today: Long,
+    dateDisplay: DateDisplay,
     summaries: Map<Long, DaySummary>,
     onOpenDate: (Long) -> Unit,
     onLongPressDate: (Long) -> Unit,
@@ -760,7 +763,7 @@ private fun YearRowView(
         Box(Modifier.width(YEAR_GUTTER_WIDTH)) {
             row.monthStart?.let { month ->
                 Text(
-                    "${month}月",
+                    dateDisplay.monthShort(month),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -897,6 +900,7 @@ private fun TimelineView(
             TimelineDayCard(
                 day = day,
                 isToday = day.date == state.today,
+                dateDisplay = state.dateDisplay,
                 onOpenDate = onOpenDate,
                 onLongPressDate = onLongPressDate,
             )
@@ -914,6 +918,7 @@ private fun TimelineView(
 private fun TimelineDayCard(
     day: TimelineDay,
     isToday: Boolean,
+    dateDisplay: DateDisplay,
     onOpenDate: (Long) -> Unit,
     onLongPressDate: (Long) -> Unit,
 ) {
@@ -930,7 +935,7 @@ private fun TimelineDayCard(
             modifier = Modifier.padding(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(dayLabel(day.date), style = MaterialTheme.typography.titleSmall)
+                Text(dateDisplay.short(day.date), style = MaterialTheme.typography.titleSmall)
                 if (isToday) {
                     Spacer(Modifier.width(6.dp))
                     StatusPill("今天", color = MaterialTheme.colorScheme.primary)
@@ -992,6 +997,7 @@ private fun TimelineFooter(canLoadEarlier: Boolean, onLoadEarlier: () -> Unit) {
 @Composable
 private fun MonthPickerDialog(
     current: YearMonth,
+    dateDisplay: DateDisplay,
     onSelect: (YearMonth) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1010,7 +1016,7 @@ private fun MonthPickerDialog(
                 ) {
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一年")
                 }
-                Text("$year 年", style = MaterialTheme.typography.titleMedium)
+                Text(dateDisplay.yearTitle(year), style = MaterialTheme.typography.titleMedium)
                 IconButton(
                     onClick = { year++ },
                     enabled = year < CALENDAR_MAX_MONTH.year,
@@ -1026,7 +1032,7 @@ private fun MonthPickerDialog(
                         (1..3).forEach { column ->
                             val monthValue = row * 3 + column
                             MonthCell(
-                                monthValue = monthValue,
+                                label = dateDisplay.monthShort(monthValue),
                                 selected = year == current.year && monthValue == current.monthValue,
                                 modifier = Modifier.weight(1f),
                                 onClick = { onSelect(YearMonth.of(year, monthValue)) },
@@ -1042,7 +1048,7 @@ private fun MonthPickerDialog(
 }
 
 @Composable
-private fun MonthCell(monthValue: Int, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun MonthCell(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val background = if (selected) {
         MaterialTheme.colorScheme.primary
     } else {
@@ -1061,7 +1067,7 @@ private fun MonthCell(monthValue: Int, selected: Boolean, modifier: Modifier, on
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text("${monthValue}月", style = MaterialTheme.typography.bodyMedium, color = textColor)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = textColor)
     }
 }
 
@@ -1137,14 +1143,14 @@ private fun Dot(color: Color, size: Dp) {
 /** 长按摘要对话框：记录条目 + 休息日 + 日期备注；「查看详情」进入日期详情页 */
 @Composable
 private fun DaySummaryDialog(
-    date: Long,
+    dateLabel: String,
     summary: DaySummary,
     onOpenDetail: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(dayLabel(date)) },
+        title = { Text(dateLabel) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 summary.entries.forEach { entry -> SummaryEntryRow(entry) }
@@ -1203,6 +1209,3 @@ private fun SummaryEntryRow(entry: SummaryEntry) {
 /** 布尔型只表达完成与否，不展示数值 */
 private fun entryValueText(entry: SummaryEntry): String? =
     if (entry.type == CheckType.BOOLEAN) null else entry.value?.let { "${formatValue(it)}${entry.unit}" }
-
-private fun dayLabel(date: Long): String =
-    LocalDate.ofEpochDay(date).format(DateTimeFormatter.ofPattern("M月d日 EEE", Locale.CHINA))

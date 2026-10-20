@@ -16,6 +16,7 @@ import com.gh.daily_trace.domain.checkin.BatchCheckInResult
 import com.gh.daily_trace.domain.checkin.CheckInPlan
 import com.gh.daily_trace.domain.checkin.CheckInPlanner
 import com.gh.daily_trace.domain.checkin.applyPlan
+import com.gh.daily_trace.domain.time.DateDisplay
 import com.gh.daily_trace.domain.time.DayClock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -234,7 +235,7 @@ class DateDetailViewModel(
         todayDay: Long,
         rules: List<FrequencyRule>,
     ): DateDetailUiState {
-        val clock = DayClock.from(settings)
+        val dateDisplay = DateDisplay.from(settings)
         val canCheckIn = BackfillPolicy.canCheckIn(date, todayDay, settings.maxBackfillDays)
         val canPlan = BackfillPolicy.canPlan(date, todayDay)
         val hint = when {
@@ -259,7 +260,7 @@ class DateDetailViewModel(
         }
         return DateDetailUiState(
             date = date,
-            title = clock.format(date, "M月d日 EEE"),
+            title = dateDisplay.short(date),
             dayNote = note?.note.orEmpty(),
             records = records,
             pickerRows = pickerRows,

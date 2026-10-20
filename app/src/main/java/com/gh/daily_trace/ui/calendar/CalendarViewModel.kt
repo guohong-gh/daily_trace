@@ -18,6 +18,7 @@ import com.gh.daily_trace.domain.calendar.WeekMatrix
 import com.gh.daily_trace.domain.calendar.WeekRow
 import com.gh.daily_trace.domain.calendar.YearGrid
 import com.gh.daily_trace.domain.calendar.YearHeatmap
+import com.gh.daily_trace.domain.time.DateDisplay
 import com.gh.daily_trace.domain.time.DayClock
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -104,7 +105,10 @@ data class CalendarUiState(
     val month: YearMonth = YearMonth.now(),
     /** 周起始（逐月/逐周网格渲染用，见 DayClock.monthGridRows） */
     val weekStart: DayOfWeek = DayOfWeek.MONDAY,
+    /** 星期表头（按 weekStart 顺序；中文单字 / 英文三字母） */
     val weekHeaders: List<String> = emptyList(),
+    /** 日期显示格式器（今日/标题之外的长按摘要、时间线等共用） */
+    val dateDisplay: DateDisplay = DateDisplay(),
     /** 逐日标记：逐选项快照色圆点 + 「+N」溢出 + 备注（月视图） */
     val marks: Map<Long, DayMarks> = emptyMap(),
     /** 逐日摘要（长按浮层数据） */
@@ -383,6 +387,7 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
 
     private fun buildState(window: WindowData, core: Core, todayDay: Long, timelineRecenter: Int): CalendarUiState {
         val clock = DayClock.from(core.settings)
+        val dateDisplay = DateDisplay.from(core.settings)
         val filterName = core.filter?.name?.ifBlank { "未命名视图" }
         return when (window) {
             is WindowData.Month -> {
@@ -397,10 +402,11 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
                 )
                 CalendarUiState(
                     viewMode = CalendarViewMode.MONTH,
-                    title = "${ym.year}年${ym.monthValue}月",
+                    title = dateDisplay.monthTitle(ym),
                     month = ym,
                     weekStart = clock.weekStart,
-                    weekHeaders = (0 until 7).map { clock.format(gridStart + it, "EEEEE") },
+                    weekHeaders = (0 until 7).map { dateDisplay.weekdayHeader(gridStart + it) },
+                    dateDisplay = dateDisplay,
                     marks = built.marks,
                     summaries = built.summaries,
                     today = todayDay,
@@ -433,11 +439,13 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
                 CalendarUiState(
                     viewMode = CalendarViewMode.WEEK,
                     weekStart = clock.weekStart,
+                    weekHeaders = (0 until 7).map { dateDisplay.weekdayHeader(anchor + it) },
+                    dateDisplay = dateDisplay,
                     summaries = built.summaries,
                     today = todayDay,
                     filterName = filterName,
                     weekAnchor = anchor,
-                    weekTitle = weekTitle(anchor),
+                    weekTitle = dateDisplay.weekTitle(anchor, anchor + 6),
                     weekRowsByAnchor = rowsByAnchor,
                     yearAnchor = yearAnchor.value,
                 )
@@ -466,11 +474,13 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
                 CalendarUiState(
                     viewMode = CalendarViewMode.YEAR,
                     weekStart = clock.weekStart,
+                    weekHeaders = (0 until 7).map { dateDisplay.weekdayHeader(clock.weekStartOf(todayDay) + it) },
+                    dateDisplay = dateDisplay,
                     summaries = built.summaries,
                     today = todayDay,
                     filterName = filterName,
                     yearAnchor = year,
-                    yearTitle = "$year 年",
+                    yearTitle = dateDisplay.yearTitle(year),
                     yearGridsByYear = grids,
                 )
             }
@@ -487,6 +497,7 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
                 CalendarUiState(
                     viewMode = CalendarViewMode.TIMELINE,
                     weekStart = clock.weekStart,
+                    dateDisplay = dateDisplay,
                     summaries = days.associate { it.date to it.summary },
                     today = todayDay,
                     filterName = filterName,
@@ -501,18 +512,4 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
         }
     }
 
-    /** 周标题：同年同月「2026年10月13日 – 19日」，跨月/跨年补全 */
-    private fun weekTitle(anchor: Long): String {
-        val start = LocalDate.ofEpochDay(anchor)
-        val end = LocalDate.ofEpochDay(anchor + 6)
-        return when {
-            start.year == end.year && start.month == end.month ->
-                "${start.year}年${start.monthValue}月${start.dayOfMonth}日 – ${end.dayOfMonth}日"
-            start.year == end.year ->
-                "${start.year}年${start.monthValue}月${start.dayOfMonth}日 – ${end.monthValue}月${end.dayOfMonth}日"
-            else ->
-                "${start.year}年${start.monthValue}月${start.dayOfMonth}日 – " +
-                    "${end.year}年${end.monthValue}月${end.dayOfMonth}日"
-        }
-    }
 }

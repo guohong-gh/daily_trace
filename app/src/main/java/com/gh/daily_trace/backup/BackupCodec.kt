@@ -160,6 +160,8 @@ object BackupCodec {
         put("weekStart", s.weekStart)
         put("startOfDay", s.startOfDay)
         put("timezone", s.timezone)
+        put("dateLanguage", s.dateLanguage.name)
+        put("dateFormat", s.dateFormat.name)
         put("colorBlindMode", s.colorBlindMode)
         put("maxBackfillDays", s.maxBackfillDays)
         put("partialCountsAsDone", s.partialCountsAsDone)
@@ -307,6 +309,8 @@ object BackupCodec {
             weekStart = o.optInt("weekStart", d.weekStart),
             startOfDay = o.optInt("startOfDay", d.startOfDay),
             timezone = o.optString("timezone", d.timezone),
+            dateLanguage = enumOr(o.str("dateLanguage"), d.dateLanguage),
+            dateFormat = enumOr(o.str("dateFormat"), d.dateFormat),
             colorBlindMode = o.optBoolean("colorBlindMode", d.colorBlindMode),
             maxBackfillDays = o.optInt("maxBackfillDays", d.maxBackfillDays),
             partialCountsAsDone = o.optBoolean("partialCountsAsDone", d.partialCountsAsDone),

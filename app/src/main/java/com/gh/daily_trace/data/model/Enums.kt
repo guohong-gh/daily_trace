@@ -49,3 +49,13 @@ enum class RepeatType {
 enum class ThemeMode {
     SYSTEM, LIGHT, DARK
 }
+
+/** 日期显示语言（仅影响日期标签，不翻译应用界面） */
+enum class DateLanguage {
+    SYSTEM, ZH, EN
+}
+
+/** 日期显示格式：跟随语言 / 年-月-日 / 月/日/年 / 日/月/年 */
+enum class DateFormat {
+    AUTO, YMD, MDY, DMY
+}

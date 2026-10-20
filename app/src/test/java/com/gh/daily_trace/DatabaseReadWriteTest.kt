@@ -8,6 +8,8 @@ import com.gh.daily_trace.data.model.AppSettings
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
 import com.gh.daily_trace.data.model.CheckType
+import com.gh.daily_trace.data.model.DateFormat
+import com.gh.daily_trace.data.model.DateLanguage
 import com.gh.daily_trace.data.model.DayFilter
 import com.gh.daily_trace.data.model.DayNote
 import com.gh.daily_trace.data.model.FilterLogic
@@ -244,6 +246,8 @@ class DatabaseReadWriteTest {
                 theme = ThemeMode.DARK,
                 weekStart = 7,
                 startOfDay = 5,
+                dateLanguage = DateLanguage.EN,
+                dateFormat = DateFormat.YMD,
                 colorBlindMode = true,
                 maxBackfillDays = 14,
                 encryption = true
@@ -253,6 +257,8 @@ class DatabaseReadWriteTest {
         assertEquals(ThemeMode.DARK, s.theme)
         assertEquals(7, s.weekStart)
         assertEquals(14, s.maxBackfillDays)
+        assertEquals(DateLanguage.EN, s.dateLanguage)
+        assertEquals(DateFormat.YMD, s.dateFormat)
         assertTrue(s.colorBlindMode)
         assertTrue(s.encryption)
     }

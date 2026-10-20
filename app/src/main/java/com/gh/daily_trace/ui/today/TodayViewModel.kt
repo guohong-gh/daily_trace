@@ -17,6 +17,7 @@ import com.gh.daily_trace.domain.checkin.CheckInPlan
 import com.gh.daily_trace.domain.checkin.CheckInPlanner
 import com.gh.daily_trace.domain.checkin.applyPlan
 import com.gh.daily_trace.domain.filter.FilterMatcher
+import com.gh.daily_trace.domain.time.DateDisplay
 import com.gh.daily_trace.domain.time.DayClock
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -223,6 +224,7 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
 
     private fun buildState(core: Core, records: List<CheckRecord>, date: Long): TodayUiState {
         val clock = DayClock.from(core.settings)
+        val dateDisplay = DateDisplay.from(core.settings)
         val byItem = records.groupBy { it.itemId }
         val rulesByItem = core.rules.associateBy { it.itemId }
 
@@ -245,7 +247,7 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
         val allRows = sections.flatMap { it.rows }
         return TodayUiState(
             date = date,
-            dateLabel = clock.format(date, "M月d日") + " " + clock.format(date, "EEE"),
+            dateLabel = dateDisplay.short(date),
             sections = sections,
             totalCount = allRows.size,
             doneCount = allRows.count { it.done },
