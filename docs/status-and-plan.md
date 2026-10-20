@@ -39,6 +39,8 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 | M7 高频闭环（5 项） | 频率规则、状态录入、休息日登记、统计总量、日历标记 | ✅ 完成（127 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十至十三节） |
 | M8 视图与效率（3 项） | 日历滑动切月 + 年月选择器、周/年/时间线视图、长按多选批量操作 | ✅ 完成（174 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十四~十八节） |
 | M9 系统集成（4 项） | 搜索按日期范围、提醒「暂停」、每日汇总提醒、桌面小组件 | ✅ 完成（207 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十九~二十二节） |
+| M10 数据与质量（7 项） | CSV 导出、按分组统计、色盲友好、日期格式/语言、大字号回归、压力测试、崩溃日志与数据修复 | 🚧 进行中（1 / 7：CSV 导出完成；214 用例全绿；批次详情见第二十三节） |
+| M11 品牌与平板（2 项） | 应用名改回「日迹」、平板 / 响应式布局 | ⬜ 未开始 |
 
 M1 验收标准：新建 4 类型选项 → 各自打卡 → 杀进程重启数据完整；MultiRecordRule 三种规则行为有单测。
 自动化部分已达成（40 用例全绿 + APK 构建成功）；模拟器（Medium_Phone_API_37.0）手动验收通过（见第八节）。
@@ -125,6 +127,7 @@ M6 发布（交付细节）：
 | D39 | 2026-10-20 | 提醒暂停 = 全局暂停截止时刻 pausedUntil（epoch millis，null = 未暂停）；预设 1 / 8 / 24 小时 + 自定义日期时间（DatePicker + TimePicker，按 settings.timezone 解释与展示）；暂停时撤下全部系列/稍后闹钟与已发通知，并排一个到点恢复闹钟（ACTION_RESUME → 重排全部）；恢复 = 清值 + 重排；暂停中 scheduleNext / scheduleSnooze 与触发接收器均静默兜底；DB v2→v3 仅加可空列 | 一个字段覆盖所有提醒入口；到点自动恢复不依赖打开 App；展示时区与提醒/逻辑日一致（M9-2） |
 | D40 | 2026-10-20 | 每日汇总 = 可选开关（默认关闭）+ 时刻预设 20:00 / 21:00 / 22:00 + 自定义 TimePicker；WorkManager 唯一周期任务（24h，首次延迟到下一汇总时刻，时刻变更/应用启动时重排，关闭即取消）；内容 = 逻辑日当天在册选项（启用、未归档、未删除）为分母、DONE 去重为分子，三态文案（无选项 / 全部完成 / 待完成）；暂停中 / 无通知权限时静默跳过；DB v3→v4 增加 dailySummaryEnabled / dailySummaryTime，备份同步这两个字段与 pausedUntil | 汇总口径与今日进度一致；默认关闭避免突然打扰；WorkManager 周期任务容忍数分钟偏差，适合汇总而非准点提醒（M9-3） |
 | D41 | 2026-10-20 | 桌面小组件 = 4×4 单一「每日打卡 · 今日」组件：头部今日进度（DONE 去重 / 在册选项）+ 百分比进度条；快捷项按管理顺序取前 4 个在册选项，布尔型未完成显示「打卡」并点击直写 `RecordSource.WIDGET`（已有 DONE 则幂等跳过），已完成或非布尔型显示「已完成 / 记录」并点击打开 App；所有实例展示同一份数据；刷新 = 系统 30 分钟周期 + Room Flow 观察者（进程存活，300ms debounce）+ 打卡后立即刷新，无实例不查库；首版不做逐实例配置与多尺寸 | 打卡口径与今日进度一致（D40）；经典 AppWidgetProvider + RemoteViews，不引入 Glance；固定顺序避免行位漂移；系统 30 分钟重绘作为进程不在时的兜底（M9-4） |
+| D42 | 2026-10-20 | CSV 导出 = 设置页「导出 CSV（打卡记录）」单文件全量打卡记录，一行一条；列 = 日期 / 记录时间 / 选项快照 / 状态 / 数值 / 单位 / 备注 / 来源 / 补卡 / 时区；按 `date, createdAt, id` 升序；日期为逻辑日，记录时刻按 `AppSettings.timezone`；UTF-8 BOM + CRLF，文本按 RFC 4180 转义，对以 `= + - @` 开头的用户文本加单引号防公式注入；全部状态、补卡与历史快照均导出，不做日期范围筛选；CSV 仅用于分析，选项/分组/日期备注与完整恢复仍由 JSON 备份承载 | 无 schema 变更；Excel 直接打开；CSV 不承担恢复职责（M10-1） |
 
 ## 五、假设（因需求文档缺失而采用）
 
@@ -468,3 +471,20 @@ resume 撤恢复闹钟并重排全部启用提醒；ReminderReceiver 触发时�
 - `lintDebug` 0 errors / 17 warnings（与基线同集合，无新增规则）；`assembleRelease`（R8）成功，release 包 2.14MB；反查 APK：`TodayWidgetProvider` / `WidgetActionReceiver` / `TodayWidget` 类与 Manifest 注册均保留。
 - 模拟器走查截图 `docs/screenshots/m9-17..18`（2 张）：桌面第二页 4×4 组件显示「2 / 6」、进度条、Bool1 / Count1「已完成」、Dur1 / Val1「记录」、「还有 2 项」；临时停用 Bool1 / Count1 后组件刷新为「0 / 4」、Run1 / Read1 显示「打卡」；点击 Run1 行 → 立即变「1 / 4」且 Run1「已完成」。
 - 一键打卡数据验证：拉库确认新增 Run1 记录为 `status=DONE`、`source=WIDGET`、`isBackfill=0`；随后用验证前数据库快照还原（还原后 MD5 与快照一致），6 选项 / 19 条记录 / 今日 2/6 复原。走查结束组件仍为 2/6。
+
+## 二十三、M10-1 CSV 导出批次（2026-10-20）
+
+范围：任务书 M10 第 13 项——CSV 导出（验收 14）。M10 进度 1 / 7。
+
+交付内容：
+1. `domain/csv/CsvExporter.kt`（D42，纯函数）：全部记录按 `date, createdAt, id` 升序；日期输出 ISO 逻辑日，记录时刻按 `AppSettings.timezone` 格式化；状态 / 来源输出中文标签；数值整数不带 `.0`，空值留空；UTF-8 BOM + CRLF；RFC 4180 转义逗号、引号与换行；以 `= + - @` 开头的选项快照 / 单位 / 备注 / 时区加单引号防公式注入。
+2. `SettingsViewModel.exportCsvTo`：IO 线程读取设置与全部记录、生成 CSV、写入 SAF 目标 URI；成功后提示「CSV 导出完成（N 条记录）」，失败提示具体原因。
+3. `SettingsScreen`：备份区新增「导出 CSV（打卡记录）」按钮与 `CreateDocument("text/csv")` launcher，默认文件名 `daily_trace_records_YYYYMMDD.csv`（按 `settings.timezone` 取日期）；说明 CSV 仅供表格分析，完整恢复仍用「导出备份」。
+4. 无 schema 变更、无新增依赖、无新增权限；CSV 只读导出，不影响演示数据。
+
+验证：
+- `testDebugUnitTest` 214/214 全绿（新增 7：CsvExporter —— BOM/表头/排序、逗号引号换行转义、公式注入防护且不误伤负数、状态/来源/补卡/值格式、整数与空值、时区换算、空记录仅表头）。
+- `lintDebug` 0 errors / 17 warnings（与基线同集合）；`assembleRelease`（R8）成功，release 包 2.16MB（2,260,326 bytes）。
+- 模拟器走查截图 `docs/screenshots/m10-01-csv-export.png`：设置 → 备份 →「导出 CSV（打卡记录）」；SAF 默认文件名 `daily_trace_records_20261020.csv`；保存后提示「CSV 导出完成（19 条记录）」。
+- 拉取导出文件校验：UTF-8 BOM；20 个 CRLF（表头 + 19 行）；20 行 × 10 列；状态 17 完成 / 1 部分完成 / 1 计划中；记录时刻为 `Asia/Shanghai`；示例数值 `8.5`、`60`、空值均正确。
+- 导出后拉库复核：`user_version = 4`；6 个在册选项、19 条记录、今日 2 个 DONE，演示数据未变。

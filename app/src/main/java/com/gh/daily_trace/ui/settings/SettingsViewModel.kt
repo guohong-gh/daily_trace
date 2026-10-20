@@ -8,6 +8,7 @@ import com.gh.daily_trace.backup.AutoBackup
 import com.gh.daily_trace.backup.BackupManager
 import com.gh.daily_trace.data.model.AppSettings
 import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.domain.csv.CsvExporter
 import com.gh.daily_trace.domain.reminder.ReminderPause
 import com.gh.daily_trace.reminder.DailySummaryScheduler
 import com.gh.daily_trace.reminder.ReminderScheduler
@@ -141,6 +142,24 @@ class SettingsViewModel(
             }
                 .onSuccess { _message.value = "导出完成" }
                 .onFailure { _message.value = "导出失败：${it.message ?: "未知错误"}" }
+        }
+    }
+
+    /** 导出全部打卡记录为 CSV；CSV 供分析，不承担完整恢复职责 */
+    fun exportCsvTo(uri: Uri, resolver: ContentResolver) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val settings = repository.getSettings()
+                    val records = repository.getAllRecords()
+                    val csv = CsvExporter.buildRecordsCsv(records, settings.timezone)
+                    val out = resolver.openOutputStream(uri) ?: error("无法写入所选文件")
+                    out.use { it.write(csv.toByteArray()) }
+                    records.size
+                }
+            }
+                .onSuccess { count -> _message.value = "CSV 导出完成（$count 条记录）" }
+                .onFailure { _message.value = "CSV 导出失败：${it.message ?: "未知错误"}" }
         }
     }
 

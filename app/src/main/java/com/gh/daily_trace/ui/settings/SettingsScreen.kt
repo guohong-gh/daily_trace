@@ -130,6 +130,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     ) { uri ->
         if (uri != null) viewModel.exportTo(uri, context.contentResolver)
     }
+    val csvExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri ->
+        if (uri != null) viewModel.exportCsvTo(uri, context.contentResolver)
+    }
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -320,6 +325,15 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         modifier = Modifier.weight(1f),
                     ) { Text("导入备份") }
                 }
+                OutlinedButton(
+                    onClick = { csvExportLauncher.launch(defaultCsvName(pauseZone)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("导出 CSV（打卡记录）") }
+                Text(
+                    "CSV 包含全部打卡记录（含补卡与历史快照），供表格分析；完整恢复请使用「导出备份」。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 SwitchRow(
                     title = "自动备份到本机",
                     subtitle = "最多保留最近 5 份",
@@ -507,6 +521,9 @@ private fun InfoRow(label: String, value: String) {
 
 private fun defaultBackupName(): String =
     "daily_trace_backup_" + SimpleDateFormat("yyyyMMdd", Locale.US).format(Date()) + ".json"
+
+private fun defaultCsvName(zone: ZoneId): String =
+    "daily_trace_records_" + LocalDate.now(zone).format(DateTimeFormatter.BASIC_ISO_DATE) + ".csv"
 
 private fun formatBackupTime(at: Long?): String =
     if (at == null) "暂无" else SimpleDateFormat("M-d HH:mm", Locale.US).format(Date(at))
