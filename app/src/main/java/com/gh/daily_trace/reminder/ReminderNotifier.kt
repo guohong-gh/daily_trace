@@ -14,15 +14,21 @@ import com.gh.daily_trace.R
 import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckType
 import com.gh.daily_trace.data.model.Reminder
+import com.gh.daily_trace.domain.summary.DailySummary
+import com.gh.daily_trace.domain.summary.summaryMessage
 
 /**
- * 提醒通知：两个渠道（普通/安静）。
+ * 提醒通知：三个渠道（普通 / 安静 / 每日汇总）。
  * 免打扰时段内触发用安静渠道（低优先级，无声音），不获取系统 DND 豁免权限。
  */
 object ReminderNotifier {
 
     const val CHANNEL_DEFAULT = "reminders_default"
     const val CHANNEL_QUIET = "reminders_quiet"
+    const val CHANNEL_SUMMARY = "daily_summary"
+
+    /** 每日汇总通知 id（与选项 id 空间隔离） */
+    private const val SUMMARY_NOTIFICATION_ID = 10_000_000L
 
     fun ensureChannels(context: Context) {
         // 通知渠道 API 26 起存在；24/25 无渠道概念，直接用默认渠道
@@ -36,6 +42,11 @@ object ReminderNotifier {
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_QUIET, "打卡提醒（安静）", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "免打扰时段内的提醒，静默显示"
+            }
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_SUMMARY, "每日汇总", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "每天固定时间汇总当天打卡完成情况"
             }
         )
     }
@@ -67,6 +78,23 @@ object ReminderNotifier {
 
     fun cancel(context: Context, itemId: Long) {
         NotificationManagerCompat.from(context).cancel(itemId.toInt())
+    }
+
+    /** 每日汇总通知：点击打开 App（M9-3） */
+    @SuppressLint("MissingPermission")
+    fun notifyDailySummary(context: Context, summary: DailySummary) {
+        if (!ReminderPermissions.notificationsGranted(context)) return
+        ensureChannels(context)
+        val text = summaryMessage(summary)
+        val builder = NotificationCompat.Builder(context, CHANNEL_SUMMARY)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("今日打卡汇总")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openAppIntent(context, SUMMARY_NOTIFICATION_ID))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        NotificationManagerCompat.from(context).notify(SUMMARY_NOTIFICATION_ID.toInt(), builder.build())
     }
 
     /** 暂停提醒时撤下全部已发通知 */

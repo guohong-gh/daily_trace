@@ -80,6 +80,7 @@ fun SettingsRoute(container: Container, onBack: () -> Unit) {
                     backupManager = container.backupManager,
                     autoBackup = container.autoBackup,
                     reminderScheduler = container.reminderScheduler,
+                    dailySummaryScheduler = container.dailySummaryScheduler,
                 )
             }
         }
@@ -97,6 +98,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     var pauseStep by remember { mutableStateOf(PauseStep.NONE) }
     var pauseDate by remember { mutableStateOf<Long?>(null) }
+    var summaryTimeDialog by remember { mutableStateOf(false) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     // 提醒时间与逻辑日均按 settings.timezone 解释，暂停展示也保持一致
     val pauseZone = remember(settings.timezone) {
@@ -245,7 +247,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     ) { Text("立即恢复") }
                 } else {
                     Text(
-                        "暂停期间所有打卡提醒与稍后提醒都不会触发；恢复后按原规则重新调度。",
+                        "暂停期间所有打卡提醒、稍后提醒与每日汇总都不会触发；恢复后按原规则重新调度。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -269,6 +271,41 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                             label = { Text("自定义") },
                         )
                     }
+                }
+
+                Spacer(Modifier.height(4.dp))
+                SwitchRow(
+                    title = "每日汇总提醒",
+                    subtitle = "每天固定时间汇总当天完成情况（暂停期间不发送）",
+                    checked = settings.dailySummaryEnabled,
+                    onCheckedChange = viewModel::setDailySummaryEnabled,
+                )
+                if (settings.dailySummaryEnabled) {
+                    SettingLabel("汇总时间")
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        val presetTimes = listOf(20 * 60, 21 * 60, 22 * 60)
+                        presetTimes.forEach { minutes ->
+                            FilterChip(
+                                selected = settings.dailySummaryTime == minutes,
+                                onClick = { viewModel.setDailySummaryTime(minutes) },
+                                label = { Text(formatSummaryTime(minutes)) },
+                            )
+                        }
+                        val custom = settings.dailySummaryTime !in presetTimes
+                        FilterChip(
+                            selected = custom,
+                            onClick = { summaryTimeDialog = true },
+                            label = { Text(if (custom) formatSummaryTime(settings.dailySummaryTime) else "自定义") },
+                        )
+                    }
+                    Text(
+                        "按「${settings.timezone}」时区计算；系统调度可能有几分钟偏差。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 
@@ -413,6 +450,37 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             },
         )
     }
+
+    if (summaryTimeDialog) {
+        val timeState = rememberTimePickerState(
+            initialHour = settings.dailySummaryTime / 60,
+            initialMinute = settings.dailySummaryTime % 60,
+            is24Hour = true,
+        )
+        AlertDialog(
+            onDismissRequest = { summaryTimeDialog = false },
+            title = { Text("汇总时间") },
+            text = {
+                Column {
+                    Text(
+                        formatSummaryTime(timeState.hour * 60 + timeState.minute),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    TimePicker(state = timeState)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.setDailySummaryTime(timeState.hour * 60 + timeState.minute)
+                    summaryTimeDialog = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { summaryTimeDialog = false }) { Text("取消") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -468,6 +536,9 @@ private fun formatPauseEnd(untilMillis: Long, zone: ZoneId): String =
     Instant.ofEpochMilli(untilMillis)
         .atZone(zone)
         .format(DateTimeFormatter.ofPattern("M-d HH:mm", Locale.CHINA))
+
+private fun formatSummaryTime(minutes: Int): String =
+    String.format(Locale.US, "%02d:%02d", minutes / 60, minutes % 60)
 
 private fun remainingLabel(untilMillis: Long, nowMillis: Long): String {
     val minutes = ((untilMillis - nowMillis) / 60_000L).coerceAtLeast(1L)

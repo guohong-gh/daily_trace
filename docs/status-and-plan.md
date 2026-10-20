@@ -38,7 +38,7 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 | UI 优化 | 品牌主题、通用组件库、九屏空态/反馈/校验统一（仅 UI 层） | ✅ 完成（103 用例全绿；lint 无错误；模拟器走查截图 ui2-*） |
 | M7 高频闭环（5 项） | 频率规则、状态录入、休息日登记、统计总量、日历标记 | ✅ 完成（127 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十至十三节） |
 | M8 视图与效率（3 项） | 日历滑动切月 + 年月选择器、周/年/时间线视图、长按多选批量操作 | ✅ 完成（174 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十四~十八节） |
-| M9 系统集成（4 项，进行中） | 搜索按日期范围、提醒「暂停」、每日汇总提醒、桌面小组件 | 🚧 进行中（2 / 4：搜索按日期范围、提醒暂停完成，196 用例全绿；批次详情见第十九~二十节） |
+| M9 系统集成（4 项，进行中） | 搜索按日期范围、提醒「暂停」、每日汇总提醒、桌面小组件 | 🚧 进行中（3 / 4：搜索按日期范围、提醒暂停、每日汇总完成，202 用例全绿；批次详情见第十九~二十一节） |
 
 M1 验收标准：新建 4 类型选项 → 各自打卡 → 杀进程重启数据完整；MultiRecordRule 三种规则行为有单测。
 自动化部分已达成（40 用例全绿 + APK 构建成功）；模拟器（Medium_Phone_API_37.0）手动验收通过（见第八节）。
@@ -123,6 +123,7 @@ M6 发布（交付细节）：
 | D37 | 2026-10-19 | 批量记录默认值直记：BOOLEAN=完成（已完成跳过）、COUNT=+1、DURATION/VALUE=选项目标值 → 截至日期最近一次记录值，均无则该行置灰不可批量（走现有单笔写入，multiRecordRule 一致）；批量删除记录 / 彻底删除选项均加确认框；批量改备注 =「应用」（非空覆盖，空输入禁用）+「清除备注」（清空）；管理页一次只在一个分区内多选（使用中/已停用 → 归档/移入回收站；已归档 → 取消归档/移入回收站；回收站 → 恢复/彻底删除），「停用/启用」不批量化；交互 = 长按进多选 + 顶栏「已选 N / 全选 / 取消」+ 底部操作条 + 返回键先退出 | 直达常用值、少填表；复用单笔写入保证规则一致；分区限定避免跨状态误操作（M8-3） |
 | D38 | 2026-10-20 | 搜索日期范围 = 预设「不限 / 近 7 天 / 近 30 天」+ 自定义起止；范围按逻辑日闭区间 [from, to]，null = 不限；近 N 天 = today-(N-1) ~ today；自定义用 Material3 DatePickerDialog（UTC 毫秒 → epochDay），起 > 止自动交换；仍要求关键词非空（不提供空关键词全量浏览） | 与既有逻辑日/闭区间口径一致；纯函数 SearchDateRange 可测；不增 schema、不改现有索引（M9-1） |
 | D39 | 2026-10-20 | 提醒暂停 = 全局暂停截止时刻 pausedUntil（epoch millis，null = 未暂停）；预设 1 / 8 / 24 小时 + 自定义日期时间（DatePicker + TimePicker，按 settings.timezone 解释与展示）；暂停时撤下全部系列/稍后闹钟与已发通知，并排一个到点恢复闹钟（ACTION_RESUME → 重排全部）；恢复 = 清值 + 重排；暂停中 scheduleNext / scheduleSnooze 与触发接收器均静默兜底；DB v2→v3 仅加可空列 | 一个字段覆盖所有提醒入口；到点自动恢复不依赖打开 App；展示时区与提醒/逻辑日一致（M9-2） |
+| D40 | 2026-10-20 | 每日汇总 = 可选开关（默认关闭）+ 时刻预设 20:00 / 21:00 / 22:00 + 自定义 TimePicker；WorkManager 唯一周期任务（24h，首次延迟到下一汇总时刻，时刻变更/应用启动时重排，关闭即取消）；内容 = 逻辑日当天在册选项（启用、未归档、未删除）为分母、DONE 去重为分子，三态文案（无选项 / 全部完成 / 待完成）；暂停中 / 无通知权限时静默跳过；DB v3→v4 增加 dailySummaryEnabled / dailySummaryTime，备份同步这两个字段与 pausedUntil | 汇总口径与今日进度一致；默认关闭避免突然打扰；WorkManager 周期任务容忍数分钟偏差，适合汇总而非准点提醒（M9-3） |
 
 ## 五、假设（因需求文档缺失而采用）
 
@@ -392,7 +393,8 @@ M6 手动验收（通过）：
 ecorded == 0 && skipped > 0 分支「没有可记录的选项（跳过 M 项）」。
 4. 新增 M8BatchViewModelTest（4 例，Robolectric）：今日批量跳过已完成布尔/不可批量项、KEEP_MULTIPLE 计数追加；日期详情补卡跳过已完成布尔并标记 isBackfill、未来日期生成 PLANNED 计划。
 
-验证：	estDebugUnitTest 178/178 全绿（+4）；lintDebug 0 errors / 17 warnings（与基线同集合）；模拟器快检三项修复均符合预期（选择条/对话框即时关闭、多选态长按保持「已选 2 项」）。
+验证：
+testDebugUnitTest 178/178 全绿（+4）；lintDebug 0 errors / 17 warnings（与基线同集合）；模拟器快检三项修复均符合预期（选择条/对话框即时关闭、多选态长按保持「已选 2 项」）。
 
 ## 十九、M9-1 搜索按日期范围批次（2026-10-20）
 
@@ -400,15 +402,15 @@ ecorded == 0 && skipped > 0 分支「没有可记录的选项（跳过 M 项）�
 
 交付内容：
 1. domain/search/SearchDateRange.kt（D38，纯函数）：SearchDatePreset（不限 / 近 7 天 / 近 30 天 / 自定义）+ SearchDateRange(from, to)（闭区间，null = 不限）+ 
-esolveSearchRange(preset, today, customFrom, customTo) + 
-ormalizeSearchRange（起 > 止自动交换、允许单边）。
+resolveSearchRange(preset, today, customFrom, customTo) + 
+normalizeSearchRange（起 > 止自动交换、允许单边）。
 2. CheckRecordDao.search(query, from, to) / DayNoteDao.search(query, from, to)：关键词条件加括号后拼接 (:from IS NULL OR date >= :from) 与 (:to IS NULL OR date <= :to)；DailyTraceRepository 包装加默认参数（null = 不限）；无 schema 变更。
 3. SearchViewModel：关键词 + 日期范围合并为 criteria 流统一防抖 300ms；范围在查询时按 DayClock.today() 解析（近 N 天随逻辑日滚动）；setPreset / setCustomRange（自定义自动归一）。
-4. SearchScreen：FilterChip 行「不限 / 近 7 天 / 近 30 天 / 自定义」；自定义展开「起始 / 结束」按钮，Material3 DatePickerDialog 选择（UTC 毫秒 → 	oEpochDay()），范围即时生效；无结果文案在范围生效时提示「放宽日期范围」。
+4. SearchScreen：FilterChip 行「不限 / 近 7 天 / 近 30 天 / 自定义」；自定义展开「起始 / 结束」按钮，Material3 DatePickerDialog 选择（UTC 毫秒 → toEpochDay()），范围即时生效；无结果文案在范围生效时提示「放宽日期范围」。
 
 验证：
-- 	estDebugUnitTest 188/188 全绿（新增 10：SearchDateRange 7 —— 不限、近 7 / 30 天含端点、自定义保序、起止交换、单边、空自定义；M9SearchRange 3（Robolectric）—— 记录闭区间 / 端点 / 单边、日期备注同口径、关键词与范围组合）。
-- lintDebug 0 errors / 17 warnings（与基线同集合）；ssembleRelease（R8）成功，release 包 2.12MB。
+- testDebugUnitTest 188/188 全绿（新增 10：SearchDateRange 7 —— 不限、近 7 / 30 天含端点、自定义保序、起止交换、单边、空自定义；M9SearchRange 3（Robolectric）—— 记录闭区间 / 端点 / 单边、日期备注同口径、关键词与范围组合）。
+- lintDebug 0 errors / 17 warnings（与基线同集合）；assembleRelease（R8）成功，release 包 2.12MB。
 - 模拟器走查截图 docs/screenshots/m9-01..07（7 张）：搜索页预设行；关键词「1」不限 19 条 → 近 7 天 18 条（排除 9-19）；自定义起止行；DatePickerDialog；自定义 10-17 ~ 10-17 → 5 条；同范围日期备注「day nayiao test」命中 1 条；起选 10-20 / 止选 10-17 自动归一为 10-17 ~ 10-20。
 - 走查未写入数据（仅查询与范围切换）。
 
@@ -418,13 +420,32 @@ ormalizeSearchRange（起 > 止自动交换、允许单边）。
 
 交付内容：
 1. AppSettings.pausedUntil: Long?（暂停截止 epoch millis，null = 未暂停）；DB version 2 → 3，MIGRATION_2_3 仅 ALTER TABLE app_settings ADD COLUMN pausedUntil INTEGER；schema 3.json 入库。
-2. domain/reminder/ReminderPause（D39，纯函数）：isPaused（严格 > now）、ctiveUntil、isValidUntil。
+2. domain/reminder/ReminderPause（D39，纯函数）：isPaused（严格 > now）、activeUntil、isValidUntil。
 3. ReminderScheduler：暂停中 scheduleNext 取消当前闹钟、scheduleSnooze 不排定（兜底）；pauseUntil 撤下全部提醒 / 稍后闹钟 + 清已发通知 + 排一次到点恢复闹钟（ReminderBootReceiver.ACTION_RESUME，进程不在也能被广播拉起）；
-esume 撤恢复闹钟并重排全部启用提醒；ReminderReceiver 触发时再判暂停，静默丢弃。
+resume 撤恢复闹钟并重排全部启用提醒；ReminderReceiver 触发时再判暂停，静默丢弃。
 4. 设置页新增「提醒」区：未暂停显示 1 小时 / 8 小时 / 24 小时 / 自定义（AssistChip）；暂停中显示「将于 M-d HH:mm 恢复（约 N 分钟 / 小时）」+「立即恢复」；自定义为 DatePicker → TimePicker 两步，按 settings.timezone 解释与展示；SettingsViewModel 先落库再撤 / 重排（避免重排读到旧暂停值），并清理已到期暂停值。
 
 验证：
-- 	estDebugUnitTest 196/196 全绿（新增 8：ReminderPause 4 —— 未设置 / 等于与过去 / 未来、截止有效性；ReminderScheduler 4（Robolectric）—— 暂停中重排不排定、暂停中稍后不排定、暂停撤提醒并排恢复闹钟、恢复后重排下一次）。
-- lintDebug 0 errors / 17 warnings（与基线同集合）；ssembleRelease（R8）成功，release 包 2.13MB。
+- testDebugUnitTest 196/196 全绿（新增 8：ReminderPause 4 —— 未设置 / 等于与过去 / 未来、截止有效性；ReminderScheduler 4（Robolectric）—— 暂停中重排不排定、暂停中稍后不排定、暂停撤提醒并排恢复闹钟、恢复后重排下一次）。
+- lintDebug 0 errors / 17 warnings（与基线同集合）；assembleRelease（R8）成功，release 包 2.13MB。
 - 真机库升级验证（模拟器 v2 → v3，install -r 保留数据）：user_version = 3、pausedUntil 列存在、6 选项 / 19 条记录完整、无崩溃。
 - 模拟器走查截图 docs/screenshots/m9-08..13（6 张）：设置页提醒区；暂停 1 小时（dumpsys 确认只剩 REMINDER_RESUME 闹钟、系列闹钟已撤）；立即恢复（系列闹钟回来）；自定义日期；自定义时间 21:00（与设置时区一致）；暂停生效（pausedUntil = 2026-10-20 21:00 +08:00）。走查结束已立即恢复，演示数据未变。
+
+## 二十一、M9-3 每日汇总提醒批次（2026-10-20）
+
+范围：任务书 M9 第 10 项——每日汇总提醒（WorkManager）。M9 进度 3 / 4。
+
+交付内容：
+1. AppSettings.dailySummaryEnabled（默认 false）/ dailySummaryTime（当地分钟数，默认 1260 = 21:00）；DB version 3 → 4，MIGRATION_3_4 两条 ALTER TABLE；schema 4.json 入库。
+2. domain/summary/DailySummary.kt（D40，纯函数）：buildDailySummary（在册选项为分母、当天 DONE 去重为分子，排除停用 / 归档 / 软删除）、summaryMessage（无选项 / 全部完成 / 待完成三态）、nextSummaryMillis（今天未过则今天、否则明天，按 settings.timezone 解释）。
+3. DailySummaryWorker（CoroutineWorker）：开关关闭 / 暂停中 / 无通知权限时静默返回；否则按 DayClock 逻辑日汇总并发布「每日汇总」通知（点按打开 App）；单次失败不重试。
+4. DailySummaryScheduler：唯一周期任务 daily_summary（24h，首次延迟到下一汇总时刻；CANCEL_AND_REENQUEUE 保证时刻变更立即生效）；应用启动、设置变更、备份导入后同步，关闭开关即取消任务。
+5. 设置页「提醒」区新增「每日汇总提醒」开关 + 汇总时间 FilterChip（20:00 / 21:00 / 22:00 / 自定义 TimePicker）；说明按 settings.timezone 计算、系统调度可能有几分钟偏差；暂停说明补充「每日汇总」。
+6. BackupCodec 补充 pausedUntil / dailySummaryEnabled / dailySummaryTime 编解码，恢复备份不再丢失这些设置（旧备份缺字段按默认值解析）。
+
+验证：
+- testDebugUnitTest 202/202 全绿（新增 6：DailySummary 6 —— 仅统计在册选项、DONE 去重、全完成、三态文案、今天 / 明天 / 午夜边界）。
+- lintDebug 0 errors / 17 warnings（与基线同集合）；assembleRelease（R8）成功，release 包 2.13MB。
+- 真机库升级验证（模拟器 v3 → v4，install -r 保留数据）：user_version = 4；dailySummaryEnabled / dailySummaryTime 列存在；6 选项 / 19 条记录 / 2 条提醒完整。
+- 模拟器走查截图 docs/screenshots/m9-14..16（3 张）：设置页汇总开关与时刻 chip；自定义 TimePicker；19:00 触发通知「今天已打卡 2 / 6 项，还有 4 项未完成」（WorkManager 准点执行，logcat Worker result SUCCESS）。
+- 暂停静默验证：暂停 1 小时后把汇总设为 19:05，Worker 按时执行但未发布通知（dumpsys 无汇总通知）；恢复后重排回 21:00（dumpsys 约 +1h53m）。走查结束已恢复暂停、汇总时间 21:00，演示数据未变。

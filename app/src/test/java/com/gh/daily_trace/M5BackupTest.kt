@@ -133,6 +133,8 @@ class M5BackupTest {
                 theme = ThemeMode.DARK, dynamicColor = false, weekStart = 7, startOfDay = 6,
                 colorBlindMode = true, maxBackfillDays = 30, partialCountsAsDone = false,
                 autoBackup = true, autoBackupIntervalDays = 3,
+                pausedUntil = 1_700_003_600_000L,
+                dailySummaryEnabled = true, dailySummaryTime = 20 * 60 + 30,
             )
         )
     }

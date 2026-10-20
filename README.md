@@ -27,8 +27,8 @@ app/src/main/java/com/gh/daily_trace/
   MainActivity.kt            入口，主题接线
   DailyTraceApp.kt / di/     应用与手动 DI 容器
   data/                      实体、DAO、Repository（数据层，Phase 1 已完成）
-  domain/                    业务纯逻辑：time/ 逻辑日与月历网格，checkin/ 打卡写入计划与补卡策略，filter/ 筛选匹配，reminder/ 提醒时刻与免打扰窗口计算，stats/ 完成率与连续/趋势统计
-  reminder/                  提醒设施：AlarmManager 调度、通知渠道与动作、开机/时区变更重排
+  domain/                    业务纯逻辑：time/ 逻辑日与月历网格，checkin/ 打卡写入计划与补卡策略，filter/ 筛选匹配，reminder/ 提醒时刻与免打扰窗口计算，summary/ 每日汇总口径，stats/ 完成率与连续/趋势统计
+  reminder/                  提醒设施：AlarmManager 调度、WorkManager 每日汇总、通知渠道与动作、开机/时区变更重排
   backup/                    备份：JSON 编解码（BackupCodec）、事务导入导出（BackupManager）、本机自动备份（AutoBackup）
   ui/                        界面：navigation / today / calendar / datedetail / search / filter / stats / manage / itemedit / settings / common / theme
 app/src/test/                单元测试（Robolectric 内存库 + 纯逻辑单测）
@@ -44,8 +44,9 @@ app/src/test/                单元测试（Robolectric 内存库 + 纯逻辑单
 - 补卡：只在日期详情页进行；受「补卡上限」（`maxBackfillDays`，0=禁用）限制，落库 `isBackfill=true`。
 - 日期备注（第三层备注）：一天一条 `DayNote`，空白即删除；与选项默认备注、单次打卡备注相互独立。
 - 提醒：时刻按 `AppSettings.timezone` 解释；精确闹钟权限可用则准点，否则系统可能延迟数分钟（编辑页有提示与引导）；免打扰时段内用「安静」低优先级渠道静默提示；通知动作「打卡」（布尔型直写、幂等）与「稍后 N 分钟」（一次性闹钟）；每次触发自动续排下一次。支持全局暂停：1 / 8 / 24 小时或自定义截止时刻，暂停期间撤下闹钟与通知，到点自动重排。
+- 每日汇总：设置页可开启（默认关闭），每天 20:00 / 21:00 / 22:00 或自定义时刻汇总当天完成情况（WorkManager 周期任务，系统可能有几分钟偏差）；内容为「已打卡 X / 总数」，暂停期间同样静默。
 - 统计：期望日模型（DAILY/无规则=每天；DAYS_OF_WEEK=所选周几；TIMES_PER_MONTH=月度配额进度）；跳过日（SKIPPED 或 allowSkip+skipDates）不计期望也不中断连续；今天未打卡宽限不中断；PARTIAL 计完成受 `partialCountsAsDone`；所有统计按 itemId 隔离。
-- 备份：JSON v1 全表快照（选项含回收站；枚举存 name；可空字段存 null）；导入为单事务全量覆盖，先校验后写入（非法数据不动库），成功后自动重排提醒；本机自动备份在应用启动与退后台时按间隔检查，存 `files/backups/`（保留最近 5 份），设置页可导出到 SAF 自选位置或手动立即备份。
+- 备份：JSON v1 全表快照（选项含回收站；枚举存 name；可空字段存 null；含暂停与每日汇总设置）；导入为单事务全量覆盖，先校验后写入（非法数据不动库），成功后自动重排提醒与汇总任务；本机自动备份在应用启动与退后台时按间隔检查，存 `files/backups/`（保留最近 5 份），设置页可导出到 SAF 自选位置或手动立即备份。
 
 ## 界面设计（UI v2，2026-10-17）
 

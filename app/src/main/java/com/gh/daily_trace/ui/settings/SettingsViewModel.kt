@@ -9,6 +9,7 @@ import com.gh.daily_trace.backup.BackupManager
 import com.gh.daily_trace.data.model.AppSettings
 import com.gh.daily_trace.data.repository.DailyTraceRepository
 import com.gh.daily_trace.domain.reminder.ReminderPause
+import com.gh.daily_trace.reminder.DailySummaryScheduler
 import com.gh.daily_trace.reminder.ReminderScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,7 @@ class SettingsViewModel(
     private val backupManager: BackupManager,
     private val autoBackup: AutoBackup,
     private val reminderScheduler: ReminderScheduler,
+    private val dailySummaryScheduler: DailySummaryScheduler,
 ) : ViewModel() {
 
     private val _settings = MutableStateFlow(AppSettings())
@@ -87,6 +89,27 @@ class SettingsViewModel(
         }
     }
 
+    /** 每日汇总开关：先落库，再按最新设置重建 WorkManager 周期任务 */
+    fun setDailySummaryEnabled(enabled: Boolean) {
+        val next = _settings.value.copy(dailySummaryEnabled = enabled)
+        _settings.value = next
+        viewModelScope.launch {
+            repository.saveSettings(next)
+            runCatching { withContext(Dispatchers.IO) { dailySummaryScheduler.sync(next) } }
+                .onFailure { _message.value = "每日汇总调度失败：${it.message ?: "未知错误"}" }
+        }
+    }
+
+    /** 每日汇总时刻（当地分钟数）：开关开启时立即按新时刻重排 */
+    fun setDailySummaryTime(minutes: Int) {
+        val next = _settings.value.copy(dailySummaryTime = minutes.coerceIn(0, 24 * 60 - 1))
+        _settings.value = next
+        viewModelScope.launch {
+            repository.saveSettings(next)
+            runCatching { withContext(Dispatchers.IO) { dailySummaryScheduler.sync(next) } }
+        }
+    }
+
     fun refreshBackupInfo() {
         viewModelScope.launch(Dispatchers.IO) {
             val files = autoBackup.listBackups()
@@ -133,8 +156,12 @@ class SettingsViewModel(
             }
             result
                 .onSuccess { c ->
-                    _settings.value = repository.getSettings()
-                    withContext(Dispatchers.IO) { runCatching { reminderScheduler.rescheduleAll() } }
+                    val importedSettings = repository.getSettings()
+                    _settings.value = importedSettings
+                    withContext(Dispatchers.IO) {
+                        runCatching { reminderScheduler.rescheduleAll() }
+                        runCatching { dailySummaryScheduler.sync(importedSettings) }
+                    }
                     refreshBackupInfo()
                     _message.value =
                         "导入完成：选项 ${c.items}、记录 ${c.records}、备注 ${c.dayNotes}、分组 ${c.groups}、提醒 ${c.reminders}"

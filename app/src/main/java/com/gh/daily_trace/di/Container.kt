@@ -5,6 +5,7 @@ import com.gh.daily_trace.backup.AutoBackup
 import com.gh.daily_trace.backup.BackupManager
 import com.gh.daily_trace.data.DailyTraceDatabase
 import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.reminder.DailySummaryScheduler
 import com.gh.daily_trace.reminder.ReminderScheduler
 
 /** 手动依赖注入容器，随 Application 生命周期存活 */
@@ -24,6 +25,7 @@ class Container(context: Context) {
     )
 
     val reminderScheduler = ReminderScheduler(appContext, repository)
+    val dailySummaryScheduler = DailySummaryScheduler(appContext)
 
     val backupManager = BackupManager(database)
     val autoBackup = AutoBackup(appContext, backupManager, repository)

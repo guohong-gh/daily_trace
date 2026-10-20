@@ -29,5 +29,9 @@ data class AppSettings(
     val autoBackupIntervalDays: Int = 7,
     val encryption: Boolean = false,
     /** 提醒暂停截止时刻（epoch millis）；null = 未暂停（M9-2） */
-    val pausedUntil: Long? = null
+    val pausedUntil: Long? = null,
+    /** 每日汇总提醒开关（M9-3） */
+    val dailySummaryEnabled: Boolean = false,
+    /** 每日汇总时刻（当地分钟数 0-1439，默认 21:00） */
+    val dailySummaryTime: Int = 21 * 60
 )

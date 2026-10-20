@@ -166,6 +166,9 @@ object BackupCodec {
         put("autoBackup", s.autoBackup)
         put("autoBackupIntervalDays", s.autoBackupIntervalDays)
         put("encryption", s.encryption)
+        put("pausedUntil", s.pausedUntil ?: JSONObject.NULL)
+        put("dailySummaryEnabled", s.dailySummaryEnabled)
+        put("dailySummaryTime", s.dailySummaryTime)
     }
 
     // ---------- 解析 ----------
@@ -310,6 +313,9 @@ object BackupCodec {
             autoBackup = o.optBoolean("autoBackup", d.autoBackup),
             autoBackupIntervalDays = o.optInt("autoBackupIntervalDays", d.autoBackupIntervalDays),
             encryption = o.optBoolean("encryption", d.encryption),
+            pausedUntil = o.nullableLong("pausedUntil"),
+            dailySummaryEnabled = o.optBoolean("dailySummaryEnabled", d.dailySummaryEnabled),
+            dailySummaryTime = o.optInt("dailySummaryTime", d.dailySummaryTime),
         )
     }
 

@@ -22,6 +22,10 @@ class DailyTraceApp : Application() {
         appScope.launch {
             runCatching { container.reminderScheduler.rescheduleAll() }
         }
+        // 每日汇总任务随设置同步（覆盖强制停止、应用升级后任务丢失的场景）
+        appScope.launch {
+            runCatching { container.dailySummaryScheduler.sync(container.repository.getSettings()) }
+        }
         // 自动备份到期检查（数据变化只在应用内发生，使用前补齐上一轮变更）
         appScope.launch {
             runCatching { container.autoBackup.runIfDue() }
