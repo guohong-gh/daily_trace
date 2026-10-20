@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -36,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -44,6 +46,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.gh.daily_trace.data.model.CheckType
 import com.gh.daily_trace.di.Container
+import com.gh.daily_trace.domain.stats.GroupRate
 import com.gh.daily_trace.domain.stats.PeriodStat
 import com.gh.daily_trace.domain.stats.RateResult
 import com.gh.daily_trace.ui.common.EmptyState
@@ -108,6 +111,24 @@ fun StatsScreen(viewModel: StatsViewModel, onBack: () -> Unit) {
                         onClick = { viewModel.setRange(r) },
                         label = { Text(r.label) },
                     )
+                }
+            }
+
+            SectionTitle("分组统计")
+            if (state.groupStats.isEmpty()) {
+                Text(
+                    "暂无可统计的分组",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        state.groupStats.forEach { stat -> GroupStatRow(stat) }
+                    }
                 }
             }
 
@@ -195,6 +216,59 @@ private fun TodaySummaryCard(done: Int, total: Int) {
         }
     }
 }
+
+@Composable
+private fun GroupStatRow(stat: GroupRate) {
+    val ratio = (stat.rate.rate ?: 0.0).toFloat().coerceIn(0f, 1f)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(stat.color?.let { Color(it) } ?: MaterialTheme.colorScheme.outline),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stat.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    formatRate(stat.rate),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                groupDescription(stat),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(
+                progress = { ratio },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                drawStopIndicator = {},
+            )
+        }
+    }
+}
+
+private fun groupDescription(stat: GroupRate): String = buildList {
+    add("${stat.itemCount} 个选项")
+    if (stat.rate.expectedDays == 0) {
+        add("暂无日级期望")
+    } else {
+        add("完成 ${stat.rate.doneDays}/${stat.rate.expectedDays} 项次")
+    }
+    if (stat.quotaItemCount > 0) add("含 ${stat.quotaItemCount} 个配额项")
+}.joinToString(" · ")
 
 @Composable
 private fun ItemStatCard(stat: ItemStat) {

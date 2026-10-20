@@ -1,8 +1,10 @@
 package com.gh.daily_trace.domain.stats
 
+import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
 import com.gh.daily_trace.data.model.FrequencyRule
 import com.gh.daily_trace.data.model.FrequencyType
+import com.gh.daily_trace.data.model.Group
 import com.gh.daily_trace.data.model.RecordStatus
 import java.time.LocalDate
 import java.time.YearMonth
@@ -48,6 +50,19 @@ data class PeriodStat(
 
 /** 参与聚合统计的选项与规则（TIMES_PER_MONTH 无日级期望，被期望日模型自然排除） */
 data class ItemRule(val itemId: Long, val rule: FrequencyRule?)
+
+/**
+ * 分组统计（M10-2）：组内按期望日加权，不取各选项百分比的平均值。
+ * TIMES_PER_MONTH 不计入分母，仅以 [quotaItemCount] 标注；未分组 / 孤儿 groupId 的 color 为 null。
+ */
+data class GroupRate(
+    val groupId: Long?,
+    val name: String,
+    val color: Int?,
+    val itemCount: Int,
+    val quotaItemCount: Int,
+    val rate: RateResult,
+)
 
 /**
  * 统计口径（D16/D24，见 docs/status-and-plan.md）：
@@ -117,6 +132,62 @@ object StatsCalculator {
             d++
         }
         return RateResult(done, expected)
+    }
+
+    /**
+     * 分组统计（D43）：仅在用选项（启用、未归档、未删除）；按分组 sort / id 顺序输出，
+     * 有在用选项的分组才出现，未分组最后。分组完成率 = Σ 组内日级期望完成 / Σ 期望日；
+     * TIMES_PER_MONTH 无日级期望，不计分母，只统计数量。
+     */
+    fun groupRates(
+        groups: List<Group>,
+        items: List<CheckItem>,
+        rulesByItem: Map<Long, FrequencyRule>,
+        recordsByDay: Map<Long, List<CheckRecord>>,
+        startDay: Long,
+        endDay: Long,
+        partialCountsAsDone: Boolean,
+    ): List<GroupRate> {
+        val orderedGroups = groups.sortedWith(compareBy({ it.sort }, { it.id }))
+        val knownGroupIds = orderedGroups.mapTo(HashSet()) { it.id }
+        val buckets = LinkedHashMap<Long?, MutableList<CheckItem>>()
+        orderedGroups.forEach { buckets[it.id] = mutableListOf() }
+        buckets[null] = mutableListOf()
+
+        items.asSequence()
+            .filter { it.deletedAt == null && it.enabled && !it.archived }
+            .forEach { item ->
+                val key = item.groupId?.takeIf { it in knownGroupIds }
+                buckets.getValue(key).add(item)
+            }
+
+        fun build(groupId: Long?, name: String, color: Int?, bucket: List<CheckItem>): GroupRate {
+            var done = 0
+            var expected = 0
+            var quota = 0
+            bucket.forEach { item ->
+                val rule = rulesByItem[item.id]
+                if (rule?.type == FrequencyType.TIMES_PER_MONTH) {
+                    quota++
+                } else {
+                    val result = rate(item.id, rule, recordsByDay, startDay, endDay, partialCountsAsDone)
+                    done += result.doneDays
+                    expected += result.expectedDays
+                }
+            }
+            return GroupRate(groupId, name, color, bucket.size, quota, RateResult(done, expected))
+        }
+
+        return buildList {
+            orderedGroups.forEach { group ->
+                buckets[group.id]?.takeIf { it.isNotEmpty() }?.let { bucket ->
+                    add(build(group.id, group.name, group.color, bucket))
+                }
+            }
+            buckets[null]?.takeIf { it.isNotEmpty() }?.let { bucket ->
+                add(build(null, "未分组", null, bucket))
+            }
+        }
     }
 
     private data class DayEntry(val day: Long, val outcome: DayOutcome)

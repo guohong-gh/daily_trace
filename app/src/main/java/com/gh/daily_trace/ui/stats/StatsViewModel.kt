@@ -7,8 +7,10 @@ import com.gh.daily_trace.data.model.CheckItem
 import com.gh.daily_trace.data.model.CheckRecord
 import com.gh.daily_trace.data.model.FrequencyRule
 import com.gh.daily_trace.data.model.FrequencyType
+import com.gh.daily_trace.data.model.Group
 import com.gh.daily_trace.data.repository.DailyTraceRepository
 import com.gh.daily_trace.domain.stats.DayOutcome
+import com.gh.daily_trace.domain.stats.GroupRate
 import com.gh.daily_trace.domain.stats.ItemRule
 import com.gh.daily_trace.domain.stats.ItemTotals
 import com.gh.daily_trace.domain.stats.PeriodStat
@@ -52,6 +54,7 @@ data class StatsUi(
     val trendMode: TrendMode = TrendMode.WEEK,
     val todayDone: Int = 0,
     val todayTotal: Int = 0,
+    val groupStats: List<GroupRate> = emptyList(),
     val itemStats: List<ItemStat> = emptyList(),
     val trend: List<PeriodStat> = emptyList(),
     val loaded: Boolean = false,
@@ -64,28 +67,41 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
     private val trendMode = MutableStateFlow(TrendMode.WEEK)
     private val tick = MutableStateFlow(0)
 
+    private data class Core(
+        val items: List<CheckItem>,
+        val records: List<CheckRecord>,
+        val settings: AppSettings,
+        val rules: List<FrequencyRule>,
+        val groups: List<Group>,
+    )
+
     private data class Base(
         val items: List<CheckItem>,
         val records: List<CheckRecord>,
         val settings: AppSettings,
         val rules: List<FrequencyRule>,
+        val groups: List<Group>,
         val range: StatRange,
     )
 
-    private val base = combine(
+    private val core = combine(
         repository.activeItems,
         repository.allRecords,
         repository.settings,
         repository.frequencyRules,
-        range,
-    ) { items, records, settings, rules, rangeValue ->
-        Base(items, records, settings, rules, rangeValue)
+        repository.groups,
+    ) { items, records, settings, rules, groups ->
+        Core(items, records, settings, rules, groups)
+    }
+
+    private val base = combine(core, range) { c, rangeValue ->
+        Base(c.items, c.records, c.settings, c.rules, c.groups, rangeValue)
     }
 
     private val withTrend = combine(base, trendMode) { b, mode -> b to mode }
 
     val uiState: StateFlow<StatsUi> = combine(withTrend, tick) { (b, mode), _ ->
-        compute(b.items, b.records, b.settings, b.rules, b.range, mode)
+        compute(b.items, b.records, b.settings, b.rules, b.groups, b.range, mode)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsUi())
 
     fun setRange(value: StatRange) {
@@ -106,6 +122,7 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
         records: List<CheckRecord>,
         settings: AppSettings,
         rules: List<FrequencyRule>,
+        groups: List<Group>,
         rangeValue: StatRange,
         mode: TrendMode,
     ): StatsUi {
@@ -136,6 +153,16 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
                 quotaTarget = rule?.timesPerMonth ?: 0,
             )
         }
+
+        val groupStats = StatsCalculator.groupRates(
+            groups = groups,
+            items = items,
+            rulesByItem = rulesByItem,
+            recordsByDay = recordsByDay,
+            startDay = start,
+            endDay = end,
+            partialCountsAsDone = partial,
+        )
 
         val itemRules = items.map { ItemRule(it.id, rulesByItem[it.id]) }
         val trend = when (mode) {
@@ -172,6 +199,7 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
             trendMode = mode,
             todayDone = todayDone,
             todayTotal = items.size,
+            groupStats = groupStats,
             itemStats = itemStats,
             trend = trend,
             loaded = true,
