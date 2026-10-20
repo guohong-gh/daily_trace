@@ -112,6 +112,7 @@ class DailyTraceRepository(
     suspend fun setReminderEnabled(itemId: Long, enabled: Boolean) = reminderDao.setEnabled(itemId, enabled)
     suspend fun deleteReminderOf(itemId: Long) = reminderDao.deleteForItem(itemId)
     suspend fun getEnabledReminders(): List<Reminder> = reminderDao.getEnabled()
+    suspend fun getAllReminders(): List<Reminder> = reminderDao.getAll()
 
     // ---------- 筛选视图 ----------
     val filterViews: Flow<List<FilterView>> = filterViewDao.observeAll()

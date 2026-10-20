@@ -27,5 +27,7 @@ data class AppSettings(
     val autoBackup: Boolean = false,
     /** 自动备份间隔天数 */
     val autoBackupIntervalDays: Int = 7,
-    val encryption: Boolean = false
+    val encryption: Boolean = false,
+    /** 提醒暂停截止时刻（epoch millis）；null = 未暂停（M9-2） */
+    val pausedUntil: Long? = null
 )

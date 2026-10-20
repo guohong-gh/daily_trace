@@ -138,4 +138,56 @@ class ReminderSchedulerTest {
         val scheduled = shadowOf(alarmManager).peekNextScheduledAlarm()!!
         assertEquals(now.toEpochMilli() + 15 * 60_000L, scheduled.triggerAtTime)
     }
+
+    @Test
+    fun `暂停期间重排不排定提醒`() = runBlocking {
+        val itemId = insertItem()
+        repo.saveReminder(Reminder(itemId = itemId, time = 8 * 60))
+        repo.saveSettings(repo.getSettings().copy(pausedUntil = now.toEpochMilli() + 3_600_000L))
+
+        scheduler().scheduleNext(repo.getReminderOf(itemId)!!)
+
+        assertNull(shadowOf(alarmManager).peekNextScheduledAlarm())
+    }
+
+    @Test
+    fun `暂停期间稍后提醒不排定`() = runBlocking {
+        val itemId = insertItem()
+        repo.saveReminder(Reminder(itemId = itemId, time = 8 * 60, snooze = 15))
+        repo.saveSettings(repo.getSettings().copy(pausedUntil = now.toEpochMilli() + 3_600_000L))
+
+        scheduler().scheduleSnooze(repo.getReminderOf(itemId)!!)
+
+        assertNull(shadowOf(alarmManager).peekNextScheduledAlarm())
+    }
+
+    @Test
+    fun `暂停撤下提醒闹钟并安排恢复闹钟`() = runBlocking {
+        val itemId = insertItem()
+        repo.saveReminder(Reminder(itemId = itemId, time = 8 * 60))
+        val scheduler = scheduler()
+        scheduler.scheduleNext(repo.getReminderOf(itemId)!!)
+
+        val until = now.toEpochMilli() + 3_600_000L
+        scheduler.pauseUntil(until)
+
+        val paused = shadowOf(alarmManager).peekNextScheduledAlarm()!!
+        assertEquals(until, paused.triggerAtTime)
+    }
+
+    @Test
+    fun `恢复后重排下一次提醒`() = runBlocking {
+        val itemId = insertItem()
+        repo.saveReminder(Reminder(itemId = itemId, time = 8 * 60))
+        val scheduler = scheduler()
+        scheduler.scheduleNext(repo.getReminderOf(itemId)!!)
+        scheduler.pauseUntil(now.toEpochMilli() + 3_600_000L)
+
+        // 与 SettingsViewModel.resumeReminders 顺序一致：先清暂停值，再重排
+        repo.saveSettings(repo.getSettings().copy(pausedUntil = null))
+        scheduler.resume()
+
+        val resumed = shadowOf(alarmManager).peekNextScheduledAlarm()!!
+        assertEquals(Instant.parse("2026-10-17T00:00:00Z").toEpochMilli(), resumed.triggerAtTime)
+    }
 }

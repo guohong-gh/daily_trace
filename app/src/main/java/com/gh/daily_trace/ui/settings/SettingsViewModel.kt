@@ -8,6 +8,7 @@ import com.gh.daily_trace.backup.AutoBackup
 import com.gh.daily_trace.backup.BackupManager
 import com.gh.daily_trace.data.model.AppSettings
 import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.domain.reminder.ReminderPause
 import com.gh.daily_trace.reminder.ReminderScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,7 +41,17 @@ class SettingsViewModel(
     val message: StateFlow<String?> = _message
 
     init {
-        viewModelScope.launch { _settings.value = repository.getSettings() }
+        viewModelScope.launch {
+            val loaded = repository.getSettings()
+            // 已到期的暂停值顺手清掉，避免设置页展示旧状态
+            if (loaded.pausedUntil != null && !ReminderPause.isPaused(loaded.pausedUntil, System.currentTimeMillis())) {
+                val cleaned = loaded.copy(pausedUntil = null)
+                repository.saveSettings(cleaned)
+                _settings.value = cleaned
+            } else {
+                _settings.value = loaded
+            }
+        }
         refreshBackupInfo()
     }
 
@@ -48,6 +59,32 @@ class SettingsViewModel(
         val next = transform(_settings.value)
         _settings.value = next
         viewModelScope.launch { repository.saveSettings(next) }
+    }
+
+    /** 暂停提醒至指定时刻（epoch millis）：先落库再撤闹钟，保证恢复时读到最新状态 */
+    fun pauseUntil(untilMillis: Long) {
+        if (!ReminderPause.isValidUntil(untilMillis, System.currentTimeMillis())) {
+            _message.value = "暂停截止时间需晚于当前时间"
+            return
+        }
+        val next = _settings.value.copy(pausedUntil = untilMillis)
+        _settings.value = next
+        viewModelScope.launch {
+            repository.saveSettings(next)
+            runCatching { withContext(Dispatchers.IO) { reminderScheduler.pauseUntil(untilMillis) } }
+            _message.value = "已暂停提醒"
+        }
+    }
+
+    /** 立即恢复提醒：先清库再重排，避免重排时仍读到暂停状态 */
+    fun resumeReminders() {
+        val next = _settings.value.copy(pausedUntil = null)
+        _settings.value = next
+        viewModelScope.launch {
+            repository.saveSettings(next)
+            runCatching { withContext(Dispatchers.IO) { reminderScheduler.resume() } }
+            _message.value = "提醒已恢复"
+        }
     }
 
     fun refreshBackupInfo() {

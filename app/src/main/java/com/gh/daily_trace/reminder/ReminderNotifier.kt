@@ -69,6 +69,11 @@ object ReminderNotifier {
         NotificationManagerCompat.from(context).cancel(itemId.toInt())
     }
 
+    /** 暂停提醒时撤下全部已发通知 */
+    fun cancelAll(context: Context) {
+        NotificationManagerCompat.from(context).cancelAll()
+    }
+
     private fun textFor(item: CheckItem): String =
         if (item.type == CheckType.BOOLEAN) "点击「打卡」即可完成" else "去记录一笔吧"
 

@@ -7,6 +7,7 @@ import android.content.Intent
 import com.gh.daily_trace.data.model.Reminder
 import com.gh.daily_trace.data.model.RepeatType
 import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.domain.reminder.ReminderPause
 import com.gh.daily_trace.domain.reminder.ReminderTime
 import java.time.Instant
 import java.time.ZoneId
@@ -45,6 +46,10 @@ class ReminderScheduler(
             return
         }
         val settings = repository.getSettings()
+        if (ReminderPause.isPaused(settings.pausedUntil, now().toEpochMilli())) {
+            cancel(reminder.id)
+            return
+        }
         val zone = runCatching { ZoneId.of(settings.timezone) }.getOrDefault(ZoneId.systemDefault())
         val at = ReminderTime.nextTriggerAfter(
             after = now(),
@@ -56,8 +61,9 @@ class ReminderScheduler(
         setAlarm(at.toEpochMilli(), firePendingIntent(reminder.id, reminder.itemId))
     }
 
-    /** 稍后提醒：一次性触发，不推进系列 */
+    /** 稍后提醒：一次性触发，不推进系列；暂停期间不再排定 */
     suspend fun scheduleSnooze(reminder: Reminder) {
+        if (ReminderPause.isPaused(repository.getSettings().pausedUntil, now().toEpochMilli())) return
         val at = now().toEpochMilli() + reminder.snooze.coerceIn(1, 1440) * 60_000L
         setAlarm(at, snoozePendingIntent(reminder.id, reminder.itemId))
     }
@@ -71,6 +77,24 @@ class ReminderScheduler(
     /** 重排全部启用提醒（启动/重启/时间变更后） */
     suspend fun rescheduleAll() {
         repository.getEnabledReminders().forEach { scheduleNext(it) }
+    }
+
+    /** 暂停：撤下全部提醒/稍后闹钟与已发通知，并安排到点自动恢复 */
+    suspend fun pauseUntil(untilMillis: Long) {
+        cancelAll()
+        ReminderNotifier.cancelAll(context)
+        setAlarm(untilMillis, pauseEndPendingIntent())
+    }
+
+    /** 恢复：撤下恢复闹钟并重排全部启用提醒 */
+    suspend fun resume() {
+        alarmManager.cancel(pauseEndPendingIntent())
+        rescheduleAll()
+    }
+
+    /** 撤下全部提醒闹钟（含已停用/已删除选项遗留的稍后闹钟） */
+    private suspend fun cancelAll() {
+        repository.getAllReminders().forEach { cancel(it.id) }
     }
 
     private fun setAlarm(atMillis: Long, pi: PendingIntent) {
@@ -102,6 +126,16 @@ class ReminderScheduler(
                 .putExtra(ReminderReceiver.EXTRA_ITEM_ID, itemId)
                 .putExtra(ReminderReceiver.EXTRA_REMINDER_ID, reminderId)
                 .putExtra(ReminderReceiver.EXTRA_SNOOZE, true),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    /** 暂停到期的一次性闹钟：到点重排全部提醒（进程不在也能被广播拉起） */
+    private fun pauseEndPendingIntent(): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            0,
+            Intent(context, ReminderBootReceiver::class.java)
+                .setAction(ReminderBootReceiver.ACTION_RESUME),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 }

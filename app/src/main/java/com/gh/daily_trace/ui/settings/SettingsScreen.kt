@@ -22,6 +22,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,11 +35,15 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,9 +57,16 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.gh.daily_trace.data.model.ThemeMode
 import com.gh.daily_trace.di.Container
+import com.gh.daily_trace.domain.reminder.ReminderPause
 import com.gh.daily_trace.ui.common.SectionCard
 import com.gh.daily_trace.ui.common.SwitchRow
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 
@@ -81,6 +95,20 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
+    var pauseStep by remember { mutableStateOf(PauseStep.NONE) }
+    var pauseDate by remember { mutableStateOf<Long?>(null) }
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    // 提醒时间与逻辑日均按 settings.timezone 解释，暂停展示也保持一致
+    val pauseZone = remember(settings.timezone) {
+        runCatching { ZoneId.of(settings.timezone) }.getOrDefault(ZoneId.systemDefault())
+    }
+
+    LaunchedEffect(settings.pausedUntil) {
+        while (true) {
+            nowMillis = System.currentTimeMillis()
+            delay(30_000)
+        }
+    }
 
     LaunchedEffect(message) {
         message?.let {
@@ -202,6 +230,48 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 }
             }
 
+            SectionCard(title = "提醒") {
+                val pausedUntil = ReminderPause.activeUntil(settings.pausedUntil, nowMillis)
+                if (pausedUntil != null) {
+                    Text("已暂停提醒", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "将于 ${formatPauseEnd(pausedUntil, pauseZone)} 恢复（约 ${remainingLabel(pausedUntil, nowMillis)}）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        onClick = { viewModel.resumeReminders() },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("立即恢复") }
+                } else {
+                    Text(
+                        "暂停期间所有打卡提醒与稍后提醒都不会触发；恢复后按原规则重新调度。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(1L to "1 小时", 8L to "8 小时", 24L to "24 小时").forEach { (hours, label) ->
+                            AssistChip(
+                                onClick = {
+                                    viewModel.pauseUntil(System.currentTimeMillis() + hours * 3_600_000L)
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                        AssistChip(
+                            onClick = {
+                                pauseDate = null
+                                pauseStep = PauseStep.DATE
+                            },
+                            label = { Text("自定义") },
+                        )
+                    }
+                }
+            }
+
             SectionCard(title = "备份") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
@@ -282,6 +352,67 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             },
         )
     }
+
+    if (pauseStep == PauseStep.DATE) {
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = pauseDate?.times(MILLIS_PER_DAY)
+        )
+        DatePickerDialog(
+            onDismissRequest = { pauseStep = PauseStep.NONE },
+            confirmButton = {
+                TextButton(
+                    enabled = pickerState.selectedDateMillis != null,
+                    onClick = {
+                        pickerState.selectedDateMillis?.let { millis ->
+                            // Material3 DatePicker 的选择值为 UTC 零点毫秒，转 epochDay 不涉及时区
+                            pauseDate = Instant.ofEpochMilli(millis)
+                                .atZone(ZoneOffset.UTC)
+                                .toLocalDate()
+                                .toEpochDay()
+                            pauseStep = PauseStep.TIME
+                        }
+                    },
+                ) { Text("下一步") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pauseStep = PauseStep.NONE }) { Text("取消") }
+            },
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+
+    if (pauseStep == PauseStep.TIME && pauseDate != null) {
+        val timeState = rememberTimePickerState(initialHour = 21, initialMinute = 0, is24Hour = true)
+        val untilMillis = LocalDate.ofEpochDay(pauseDate!!)
+            .atTime(timeState.hour, timeState.minute)
+            .atZone(pauseZone)
+            .toInstant()
+            .toEpochMilli()
+        AlertDialog(
+            onDismissRequest = { pauseStep = PauseStep.NONE },
+            title = { Text("暂停至") },
+            text = {
+                Column {
+                    Text(formatPauseEnd(untilMillis, pauseZone), style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(12.dp))
+                    TimePicker(state = timeState)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = ReminderPause.isValidUntil(untilMillis, System.currentTimeMillis()),
+                    onClick = {
+                        viewModel.pauseUntil(untilMillis)
+                        pauseStep = PauseStep.NONE
+                    },
+                ) { Text("暂停") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pauseStep = PauseStep.NONE }) { Text("取消") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -326,4 +457,23 @@ private fun weekdayLabel(d: Int): String = when (d) {
     5 -> "周五"
     6 -> "周六"
     else -> "周日"
+}
+
+/** 自定义暂停的两步选择：先日期，再时间 */
+private enum class PauseStep { NONE, DATE, TIME }
+
+private const val MILLIS_PER_DAY = 86_400_000L
+
+private fun formatPauseEnd(untilMillis: Long, zone: ZoneId): String =
+    Instant.ofEpochMilli(untilMillis)
+        .atZone(zone)
+        .format(DateTimeFormatter.ofPattern("M-d HH:mm", Locale.CHINA))
+
+private fun remainingLabel(untilMillis: Long, nowMillis: Long): String {
+    val minutes = ((untilMillis - nowMillis) / 60_000L).coerceAtLeast(1L)
+    return when {
+        minutes < 60 -> "$minutes 分钟"
+        minutes < 24 * 60 -> "${minutes / 60} 小时 ${minutes % 60} 分"
+        else -> "${minutes / (24 * 60)} 天 ${(minutes % (24 * 60)) / 60} 小时"
+    }
 }

@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
         FrequencyRule::class,
         AppSettings::class
     ],
-    version = 2,
+    version = 3,
     // 导出 schema 至 app/schemas，后续升级编写显式 Migration，不做隐式破坏性迁移
     exportSchema = true
 )
@@ -83,6 +83,17 @@ abstract class DailyTraceDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v2 → v3（M9-2 提醒暂停）：
+         * app_settings 增加 pausedUntil（暂停截止毫秒时间戳；null = 未暂停）。
+         * 旧数据默认 null，即未暂停。
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE app_settings ADD COLUMN pausedUntil INTEGER")
+            }
+        }
+
         private fun build(context: Context): DailyTraceDatabase {
             // onCreate 回调在数据库首次打开（build 返回之后）才触发，届时 db 已初始化
             lateinit var db: DailyTraceDatabase
@@ -91,7 +102,7 @@ abstract class DailyTraceDatabase : RoomDatabase() {
                 DailyTraceDatabase::class.java,
                 "daily_trace.db"
             )
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .addCallback(object : Callback() {
                     override fun onCreate(supportDb: SupportSQLiteDatabase) {
                         super.onCreate(supportDb)

@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.gh.daily_trace.DailyTraceApp
+import com.gh.daily_trace.domain.reminder.ReminderPause
 import com.gh.daily_trace.domain.reminder.ReminderTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,10 @@ class ReminderReceiver : BroadcastReceiver() {
                 val reminder = repository.getReminderOf(itemId)
 
                 if (item == null || item.deletedAt != null || !item.enabled || item.archived || reminder == null) {
+                    return@launch
+                }
+                // 暂停期间到点的闹钟静默丢弃；恢复时由暂停到期闹钟统一重排
+                if (ReminderPause.isPaused(repository.getSettings().pausedUntil, System.currentTimeMillis())) {
                     return@launch
                 }
                 if (!isSnooze) {

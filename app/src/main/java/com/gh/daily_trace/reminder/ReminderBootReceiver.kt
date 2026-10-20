@@ -9,7 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-/** 开机/改时间/改时区/应用更新后重排全部启用提醒（闹钟在这些场景会被系统清空） */
+/** 开机/改时间/改时区/应用更新后重排全部启用提醒；暂停到期闹钟也走这里恢复（闹钟在这些场景会被系统清空） */
 class ReminderBootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -27,11 +27,15 @@ class ReminderBootReceiver : BroadcastReceiver() {
     }
 
     companion object {
+        /** 暂停到期：由 ReminderScheduler 安排的一次性闹钟触发，重排全部提醒 */
+        const val ACTION_RESUME = "com.gh.daily_trace.action.REMINDER_RESUME"
+
         private val HANDLED_ACTIONS = setOf(
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED,
             Intent.ACTION_MY_PACKAGE_REPLACED,
+            ACTION_RESUME,
         )
     }
 }
