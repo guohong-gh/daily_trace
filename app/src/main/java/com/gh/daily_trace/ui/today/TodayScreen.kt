@@ -234,14 +234,15 @@ fun TodayScreen(
                     Button(
                         onClick = {
                             val ids = selectedIds
+                            exitSelection()
                             scope.launch {
                                 val result = viewModel.batchCheckIn(ids)
-                                exitSelection()
                                 snackbarHostState.showSnackbar(
                                     when {
                                         result.recorded > 0 && result.skipped > 0 ->
                                             "已记录 ${result.recorded} 项（跳过 ${result.skipped} 项）"
                                         result.recorded > 0 -> "已记录 ${result.recorded} 项"
+                                        result.skipped > 0 -> "没有可记录的选项（跳过 ${result.skipped} 项）"
                                         else -> "没有可记录的选项"
                                     }
                                 )

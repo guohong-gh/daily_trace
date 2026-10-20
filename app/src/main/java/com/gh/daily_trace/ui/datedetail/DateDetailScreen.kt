@@ -360,11 +360,11 @@ fun DateDetailScreen(viewModel: DateDetailViewModel, onBack: () -> Unit) {
                             onClick = {
                                 val ids = pickerSelected
                                 val planMode = state.canPlan
+                                pickerOpen = false
+                                pickerSelected = emptySet()
+                                pickerBatchValues = null
                                 scope.launch {
                                     val result = viewModel.batchAddRecords(ids)
-                                    pickerOpen = false
-                                    pickerSelected = emptySet()
-                                    pickerBatchValues = null
                                     val message = buildString {
                                         if (result.recorded > 0) {
                                             append(if (planMode) "已创建 ${result.recorded} 项计划" else "已记录 ${result.recorded} 项")

@@ -377,7 +377,7 @@ private fun ManageItemRow(
             .fillMaxWidth()
             .combinedClickable(
                 onClick = { if (selecting) onToggleSelect() else onClick() },
-                onLongClick = onLongPress,
+                onLongClick = { if (!selecting) onLongPress() },
             ),
     ) {
         Row(
