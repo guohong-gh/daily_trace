@@ -1,6 +1,6 @@
 # 项目现状与实施计划
 
-> 更新时间：2026-10-19。本文档由技术负责人盘点后沉淀，随进展更新。
+> 更新时间：2026-10-20。本文档由技术负责人盘点后沉淀，随进展更新。
 
 ## 一、已确认事实（来自代码与构建产物）
 
@@ -38,7 +38,7 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 | UI 优化 | 品牌主题、通用组件库、九屏空态/反馈/校验统一（仅 UI 层） | ✅ 完成（103 用例全绿；lint 无错误；模拟器走查截图 ui2-*） |
 | M7 高频闭环（5 项） | 频率规则、状态录入、休息日登记、统计总量、日历标记 | ✅ 完成（127 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十至十三节） |
 | M8 视图与效率（3 项） | 日历滑动切月 + 年月选择器、周/年/时间线视图、长按多选批量操作 | ✅ 完成（174 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十四~十八节） |
-| M9 系统集成（4 项，进行中） | 搜索按日期范围、提醒「暂停」、每日汇总提醒、桌面小组件 | 🚧 进行中（3 / 4：搜索按日期范围、提醒暂停、每日汇总完成，202 用例全绿；批次详情见第十九~二十一节） |
+| M9 系统集成（4 项） | 搜索按日期范围、提醒「暂停」、每日汇总提醒、桌面小组件 | ✅ 完成（207 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十九~二十二节） |
 
 M1 验收标准：新建 4 类型选项 → 各自打卡 → 杀进程重启数据完整；MultiRecordRule 三种规则行为有单测。
 自动化部分已达成（40 用例全绿 + APK 构建成功）；模拟器（Medium_Phone_API_37.0）手动验收通过（见第八节）。
@@ -124,6 +124,7 @@ M6 发布（交付细节）：
 | D38 | 2026-10-20 | 搜索日期范围 = 预设「不限 / 近 7 天 / 近 30 天」+ 自定义起止；范围按逻辑日闭区间 [from, to]，null = 不限；近 N 天 = today-(N-1) ~ today；自定义用 Material3 DatePickerDialog（UTC 毫秒 → epochDay），起 > 止自动交换；仍要求关键词非空（不提供空关键词全量浏览） | 与既有逻辑日/闭区间口径一致；纯函数 SearchDateRange 可测；不增 schema、不改现有索引（M9-1） |
 | D39 | 2026-10-20 | 提醒暂停 = 全局暂停截止时刻 pausedUntil（epoch millis，null = 未暂停）；预设 1 / 8 / 24 小时 + 自定义日期时间（DatePicker + TimePicker，按 settings.timezone 解释与展示）；暂停时撤下全部系列/稍后闹钟与已发通知，并排一个到点恢复闹钟（ACTION_RESUME → 重排全部）；恢复 = 清值 + 重排；暂停中 scheduleNext / scheduleSnooze 与触发接收器均静默兜底；DB v2→v3 仅加可空列 | 一个字段覆盖所有提醒入口；到点自动恢复不依赖打开 App；展示时区与提醒/逻辑日一致（M9-2） |
 | D40 | 2026-10-20 | 每日汇总 = 可选开关（默认关闭）+ 时刻预设 20:00 / 21:00 / 22:00 + 自定义 TimePicker；WorkManager 唯一周期任务（24h，首次延迟到下一汇总时刻，时刻变更/应用启动时重排，关闭即取消）；内容 = 逻辑日当天在册选项（启用、未归档、未删除）为分母、DONE 去重为分子，三态文案（无选项 / 全部完成 / 待完成）；暂停中 / 无通知权限时静默跳过；DB v3→v4 增加 dailySummaryEnabled / dailySummaryTime，备份同步这两个字段与 pausedUntil | 汇总口径与今日进度一致；默认关闭避免突然打扰；WorkManager 周期任务容忍数分钟偏差，适合汇总而非准点提醒（M9-3） |
+| D41 | 2026-10-20 | 桌面小组件 = 4×4 单一「每日打卡 · 今日」组件：头部今日进度（DONE 去重 / 在册选项）+ 百分比进度条；快捷项按管理顺序取前 4 个在册选项，布尔型未完成显示「打卡」并点击直写 `RecordSource.WIDGET`（已有 DONE 则幂等跳过），已完成或非布尔型显示「已完成 / 记录」并点击打开 App；所有实例展示同一份数据；刷新 = 系统 30 分钟周期 + Room Flow 观察者（进程存活，300ms debounce）+ 打卡后立即刷新，无实例不查库；首版不做逐实例配置与多尺寸 | 打卡口径与今日进度一致（D40）；经典 AppWidgetProvider + RemoteViews，不引入 Glance；固定顺序避免行位漂移；系统 30 分钟重绘作为进程不在时的兜底（M9-4） |
 
 ## 五、假设（因需求文档缺失而采用）
 
@@ -449,3 +450,21 @@ resume 撤恢复闹钟并重排全部启用提醒；ReminderReceiver 触发时�
 - 真机库升级验证（模拟器 v3 → v4，install -r 保留数据）：user_version = 4；dailySummaryEnabled / dailySummaryTime 列存在；6 选项 / 19 条记录 / 2 条提醒完整。
 - 模拟器走查截图 docs/screenshots/m9-14..16（3 张）：设置页汇总开关与时刻 chip；自定义 TimePicker；19:00 触发通知「今天已打卡 2 / 6 项，还有 4 项未完成」（WorkManager 准点执行，logcat Worker result SUCCESS）。
 - 暂停静默验证：暂停 1 小时后把汇总设为 19:05，Worker 按时执行但未发布通知（dumpsys 无汇总通知）；恢复后重排回 21:00（dumpsys 约 +1h53m）。走查结束已恢复暂停、汇总时间 21:00，演示数据未变。
+
+## 二十二、M9-4 桌面小组件批次（2026-10-20）
+
+范围：任务书 M9 第 9 项——桌面小组件（今日进度 + 快捷打卡）。M9 进度 4 / 4，M9 收官。
+
+交付内容：
+1. `domain/widget/WidgetDigest.kt`（D41，纯函数）：在册 = 启用、未归档、未删除，按 `sort, id` 排序；`done` = 当天 DONE 记录按 itemId 去重，百分比四舍五入；`quickItems` 取前 4 个在册选项（已完成项保留位置，避免行跳动）。
+2. `widget/TodayWidget.kt`：按 `DayClock + settings` 取逻辑日，组装 RemoteViews（`done / total`、百分比进度条、最多 4 行、无选项空态）；布尔未完成行 → `PendingIntent.getBroadcast` 到 `WidgetActionReceiver`（动作 `WIDGET_CHECK_IN` + item_id）；已完成 / 非布尔 / 头部 /「还有 N 项」→ 打开 `MainActivity`；无组件实例直接返回、不查库；全部实例更新同一份 RemoteViews。
+3. `widget/TodayWidgetProvider.kt`（`onUpdate` + `goAsync`）与 `widget/WidgetActionReceiver.kt`（`exported=false`）：后者二次校验选项在册且为布尔、已有 DONE 则幂等跳过，否则 `CheckInPlanner.toggleBoolean(source = WIDGET)` 落库并立即刷新组件。
+4. 资源：`res/layout/widget_today.xml`（4 行快捷项）、`res/drawable/widget_background.xml`、`values/colors.xml` + `values-night/colors.xml` 日夜配色、`res/xml/today_widget_info.xml`（4×4、30 分钟周期、previewLayout、description）；Manifest 注册 Provider（系统入口）与 Receiver（仅应用内 PendingIntent 可触发）。
+5. `DailyTraceApp`：进程存活时合并 `activeItems + allRecords + settings` Flow，300ms debounce 后刷新组件；`CheckInPlanner.toggleBoolean / newRecord` 增加可选 `source` 参数（默认 MANUAL），通知动作与组件打卡共用写入规则。
+6. 无 schema 变更；无新增依赖（经典 RemoteViews，未引入 Glance）。
+
+验证：
+- `testDebugUnitTest` 207/207 全绿（新增 5：WidgetDigest —— 在册口径与停用 / 归档 / 删除排除、按管理顺序取前 4、DONE 去重与进度、已完成标记、百分比取整、空数据与零快捷项）。
+- `lintDebug` 0 errors / 17 warnings（与基线同集合，无新增规则）；`assembleRelease`（R8）成功，release 包 2.14MB；反查 APK：`TodayWidgetProvider` / `WidgetActionReceiver` / `TodayWidget` 类与 Manifest 注册均保留。
+- 模拟器走查截图 `docs/screenshots/m9-17..18`（2 张）：桌面第二页 4×4 组件显示「2 / 6」、进度条、Bool1 / Count1「已完成」、Dur1 / Val1「记录」、「还有 2 项」；临时停用 Bool1 / Count1 后组件刷新为「0 / 4」、Run1 / Read1 显示「打卡」；点击 Run1 行 → 立即变「1 / 4」且 Run1「已完成」。
+- 一键打卡数据验证：拉库确认新增 Run1 记录为 `status=DONE`、`source=WIDGET`、`isBackfill=0`；随后用验证前数据库快照还原（还原后 MD5 与快照一致），6 选项 / 19 条记录 / 今日 2/6 复原。走查结束组件仍为 2/6。

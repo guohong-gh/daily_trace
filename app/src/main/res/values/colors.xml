@@ -7,4 +7,11 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- 桌面小组件（M9-4） -->
+    <color name="widget_background">#F1F5EC</color>
+    <color name="widget_text_primary">#181D18</color>
+    <color name="widget_text_secondary">#414941</color>
+    <color name="widget_accent">#2E6B4A</color>
+    <color name="widget_track">#1F2E6B4A</color>
 </resources>

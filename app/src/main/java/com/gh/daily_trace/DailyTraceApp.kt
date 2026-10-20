@@ -3,11 +3,16 @@ package com.gh.daily_trace
 import android.app.Application
 import com.gh.daily_trace.di.Container
 import com.gh.daily_trace.reminder.ReminderNotifier
+import com.gh.daily_trace.widget.TodayWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
+@OptIn(FlowPreview::class)
 class DailyTraceApp : Application() {
     lateinit var container: Container
         private set
@@ -29,6 +34,16 @@ class DailyTraceApp : Application() {
         // 自动备份到期检查（数据变化只在应用内发生，使用前补齐上一轮变更）
         appScope.launch {
             runCatching { container.autoBackup.runIfDue() }
+        }
+        // 应用内数据变化时刷新桌面组件（进程不在时由系统 30 分钟周期兜底）
+        appScope.launch {
+            combine(
+                container.repository.activeItems,
+                container.repository.allRecords,
+                container.repository.settings,
+            ) { _, _, _ -> Unit }
+                .debounce(300)
+                .collect { TodayWidget.requestUpdate(this@DailyTraceApp) }
         }
     }
 }

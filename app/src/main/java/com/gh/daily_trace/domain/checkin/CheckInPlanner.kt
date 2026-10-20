@@ -42,12 +42,13 @@ object CheckInPlanner {
         timezone: String,
         isBackfill: Boolean,
         now: Long,
+        source: RecordSource = RecordSource.MANUAL,
     ): CheckInPlan {
         val doneRecords = existing.filter { it.status == RecordStatus.DONE }
         return if (doneRecords.isNotEmpty()) {
             CheckInPlan(deletes = doneRecords.map { it.id })
         } else {
-            CheckInPlan(inserts = listOf(newRecord(item, date, 1.0, "", timezone, isBackfill, now)))
+            CheckInPlan(inserts = listOf(newRecord(item, date, 1.0, "", timezone, isBackfill, now, source = source)))
         }
     }
 
@@ -177,6 +178,7 @@ object CheckInPlanner {
         isBackfill: Boolean,
         now: Long,
         status: RecordStatus = RecordStatus.DONE,
+        source: RecordSource = RecordSource.MANUAL,
     ): CheckRecord = CheckRecord(
         itemId = item.id,
         date = date,
@@ -184,7 +186,7 @@ object CheckInPlanner {
         unit = item.unit,
         note = note,
         status = status,
-        source = RecordSource.MANUAL,
+        source = source,
         isBackfill = isBackfill,
         timezone = timezone,
         createdAt = now,
