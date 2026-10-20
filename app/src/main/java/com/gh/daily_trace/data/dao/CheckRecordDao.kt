@@ -42,13 +42,15 @@ interface CheckRecordDao {
     @Query("SELECT * FROM check_records WHERE id = :id")
     suspend fun getById(id: Long): CheckRecord?
 
-    /** 供搜索使用：命中备注或快照名称 */
+    /** 供搜索使用：命中备注或快照名称；from/to 为闭区间（null = 不限） */
     @Query(
         "SELECT * FROM check_records " +
-            "WHERE note LIKE '%' || :query || '%' OR itemNameSnapshot LIKE '%' || :query || '%' " +
+            "WHERE (note LIKE '%' || :query || '%' OR itemNameSnapshot LIKE '%' || :query || '%') " +
+            "AND (:from IS NULL OR date >= :from) " +
+            "AND (:to IS NULL OR date <= :to) " +
             "ORDER BY date DESC, createdAt DESC"
     )
-    suspend fun search(query: String): List<CheckRecord>
+    suspend fun search(query: String, from: Long?, to: Long?): List<CheckRecord>
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(record: CheckRecord): Long

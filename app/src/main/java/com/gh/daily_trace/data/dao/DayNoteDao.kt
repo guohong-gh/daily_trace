@@ -33,8 +33,14 @@ interface DayNoteDao {
     @Query("DELETE FROM day_notes WHERE date = :date")
     suspend fun delete(date: Long)
 
-    @Query("SELECT * FROM day_notes WHERE note LIKE '%' || :query || '%' ORDER BY date DESC")
-    suspend fun search(query: String): List<DayNote>
+    /** 供搜索使用：from/to 为闭区间（null = 不限） */
+    @Query(
+        "SELECT * FROM day_notes WHERE note LIKE '%' || :query || '%' " +
+            "AND (:from IS NULL OR date >= :from) " +
+            "AND (:to IS NULL OR date <= :to) " +
+            "ORDER BY date DESC"
+    )
+    suspend fun search(query: String, from: Long?, to: Long?): List<DayNote>
 
     /** 备份导入：批量写入（先清空后插入） */
     @Insert(onConflict = OnConflictStrategy.REPLACE)

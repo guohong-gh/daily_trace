@@ -144,7 +144,7 @@ class DatabaseReadWriteTest {
         // 按选项查询
         assertEquals(1, db.checkRecordDao().getForItemOnDate(itemId, today).size)
         // 搜索（备注关键词）
-        assertEquals(1, db.checkRecordDao().search("昨天").size)
+        assertEquals(1, db.checkRecordDao().search("昨天", null, null).size)
 
         // 删除
         db.checkRecordDao().delete(records[0].id)

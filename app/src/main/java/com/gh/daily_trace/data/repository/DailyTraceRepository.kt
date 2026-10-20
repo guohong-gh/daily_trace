@@ -83,7 +83,8 @@ class DailyTraceRepository(
     suspend fun deleteRecord(id: Long) = checkRecordDao.delete(id)
     suspend fun deleteRecords(ids: List<Long>) = checkRecordDao.deleteByIds(ids)
     suspend fun getAllRecords(): List<CheckRecord> = checkRecordDao.getAll()
-    suspend fun searchRecords(query: String): List<CheckRecord> = checkRecordDao.search(query)
+    suspend fun searchRecords(query: String, from: Long? = null, to: Long? = null): List<CheckRecord> =
+        checkRecordDao.search(query, from, to)
 
     // ---------- 日期整体备注 ----------
     fun observeDayNote(date: Long): Flow<DayNote?> = dayNoteDao.observeByDate(date)
@@ -93,7 +94,8 @@ class DailyTraceRepository(
     suspend fun getDayNote(date: Long): DayNote? = dayNoteDao.getByDate(date)
     suspend fun saveDayNote(note: DayNote) = dayNoteDao.upsert(note)
     suspend fun deleteDayNote(date: Long) = dayNoteDao.delete(date)
-    suspend fun searchDayNotes(query: String): List<DayNote> = dayNoteDao.search(query)
+    suspend fun searchDayNotes(query: String, from: Long? = null, to: Long? = null): List<DayNote> =
+        dayNoteDao.search(query, from, to)
 
     // ---------- 分组 ----------
     val groups: Flow<List<Group>> = groupDao.observeAll()
