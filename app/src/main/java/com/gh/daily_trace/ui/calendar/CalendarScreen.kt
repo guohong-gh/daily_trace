@@ -234,6 +234,12 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit, onOpenDate:
 /** 视图 tab（M8）：点击切换、不横滑（横滑留给各视图自己的翻页） */
 @Composable
 private fun CalendarModeTabs(selected: CalendarViewMode, onSelect: (CalendarViewMode) -> Unit) {
+    val fontScale = LocalDensity.current.fontScale
+    val tabTextStyle = when {
+        fontScale > 1.5f -> MaterialTheme.typography.labelSmall
+        fontScale > 1.25f -> MaterialTheme.typography.labelMedium
+        else -> MaterialTheme.typography.titleSmall
+    }
     val tabs = listOf(
         CalendarViewMode.MONTH to "月",
         CalendarViewMode.WEEK to "周",
@@ -245,7 +251,14 @@ private fun CalendarModeTabs(selected: CalendarViewMode, onSelect: (CalendarView
             Tab(
                 selected = mode == selected,
                 onClick = { onSelect(mode) },
-                text = { Text(label) },
+                text = {
+                    Text(
+                        label,
+                        maxLines = 1,
+                        softWrap = false,
+                        style = tabTextStyle,
+                    )
+                },
             )
         }
     }
@@ -352,25 +365,15 @@ private fun MonthView(
         }
     }
     Spacer(Modifier.height(12.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            Dot(Color(0xFF2E6B4A), 4.dp)
-            Dot(Color(0xFF1565C0), 4.dp)
-            Dot(Color(0xFFEF6C00), 4.dp)
-            Spacer(Modifier.width(3.dp))
-            Text(
-                "已完成的选项（颜色对应选项）",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    if (LocalDensity.current.fontScale > 1.4f) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            CompletionLegend()
+            NoteLegend()
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Dot(MaterialTheme.colorScheme.tertiary, 5.dp)
-            Text(
-                "有备注",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    } else {
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            CompletionLegend()
+            NoteLegend()
         }
     }
     Spacer(Modifier.height(6.dp))
@@ -379,6 +382,33 @@ private fun MonthView(
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+@Composable
+private fun CompletionLegend() {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        Dot(Color(0xFF2E6B4A), 4.dp)
+        Dot(Color(0xFF1565C0), 4.dp)
+        Dot(Color(0xFFEF6C00), 4.dp)
+        Spacer(Modifier.width(3.dp))
+        Text(
+            "已完成的选项（颜色对应选项）",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun NoteLegend() {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Dot(MaterialTheme.colorScheme.tertiary, 5.dp)
+        Text(
+            "有备注",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 // ---------- 周视图 ----------
@@ -422,7 +452,7 @@ private fun WeekView(
                     state.weekTitle,
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
@@ -471,9 +501,17 @@ private fun WeekPage(
     onLongPressDate: (Long) -> Unit,
 ) {
     val days = (anchor until anchor + 7).toList()
+    val fontScale = LocalDensity.current.fontScale
+    // 大字号下为选项名腾出空间，同时避免日期数字在 26dp 圆内被裁成一位。
+    val labelWidth = (WEEK_LABEL_WIDTH.value * fontScale.coerceIn(1f, 1.6f)).dp
+    val dayTextStyle = if (fontScale > 1.6f) {
+        MaterialTheme.typography.labelSmall
+    } else {
+        MaterialTheme.typography.bodyMedium
+    }
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth()) {
-            Spacer(Modifier.width(WEEK_LABEL_WIDTH))
+            Spacer(Modifier.width(labelWidth))
             days.forEachIndexed { index, day ->
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
@@ -496,7 +534,7 @@ private fun WeekPage(
                     ) {
                         Text(
                             LocalDate.ofEpochDay(day).dayOfMonth.toString(),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = dayTextStyle,
                             color = if (day == today) {
                                 MaterialTheme.colorScheme.onPrimary
                             } else {
@@ -533,7 +571,7 @@ private fun WeekPage(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .width(WEEK_LABEL_WIDTH)
+                            .width(labelWidth)
                             .padding(end = 6.dp),
                     ) {
                         Box(Modifier.size(6.dp).background(Color(row.color), CircleShape))
@@ -753,6 +791,8 @@ private fun YearRowView(
     onOpenDate: (Long) -> Unit,
     onLongPressDate: (Long) -> Unit,
 ) {
+    // 大字号下月份短名会变宽；栏宽随系统字体比例放大，避免「10月」被拆行挤压热力图。
+    val gutterWidth = (YEAR_GUTTER_WIDTH.value * LocalDensity.current.fontScale.coerceIn(1f, 2f)).dp
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
@@ -760,7 +800,7 @@ private fun YearRowView(
             .fillMaxWidth()
             .height(YEAR_ROW_HEIGHT),
     ) {
-        Box(Modifier.width(YEAR_GUTTER_WIDTH)) {
+        Box(Modifier.width(gutterWidth)) {
             row.monthStart?.let { month ->
                 Text(
                     dateDisplay.monthShort(month),
@@ -1080,11 +1120,36 @@ private fun DayCell(
     onOpenDate: () -> Unit,
     onLongPress: () -> Unit,
 ) {
+    // 日期数字是密集网格：大字号下适度收紧字阶，避免两位数被 28dp 日期圆裁掉。
+    val fontScale = LocalDensity.current.fontScale
+    val dayTextStyle = if (fontScale > 1.6f) {
+        MaterialTheme.typography.labelSmall
+    } else {
+        MaterialTheme.typography.bodyMedium
+    }
+    // 大字号时压缩彩点数量与间距，把隐藏的完成项并入「+N」，避免右侧被裁切。
+    val denseDots = fontScale > 1.2f
+    val maxDots = when {
+        fontScale > 1.6f -> 2
+        denseDots -> 3
+        else -> 4
+    }
+    val dotSize = if (denseDots) 4.dp else 5.dp
+    val dotGap = if (denseDots) 1.dp else 2.dp
+    val visibleDots = mark?.dotColors.orEmpty().take(maxDots)
+    val hiddenCount = (mark?.dotColors?.size ?: 0) - visibleDots.size + (mark?.overflow ?: 0)
+    // 固定格高时大字号会裁掉「+N」；按字阶给日期格留出垂直空间。
+    val cellHeight = when {
+        fontScale > 1.7f -> 76.dp
+        fontScale > 1.4f -> 66.dp
+        denseDots -> 60.dp
+        else -> 48.dp
+    }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .height(cellHeight)
             .clip(MaterialTheme.shapes.small)
             .combinedClickable(
                 onLongClick = if (hasSummary) onLongPress else null,
@@ -1106,7 +1171,7 @@ private fun DayCell(
         ) {
             Text(
                 LocalDate.ofEpochDay(date).dayOfMonth.toString(),
-                style = MaterialTheme.typography.bodyMedium,
+                style = dayTextStyle,
                 color = if (isToday) {
                     MaterialTheme.colorScheme.onPrimary
                 } else {
@@ -1117,19 +1182,19 @@ private fun DayCell(
         }
         Spacer(Modifier.height(2.dp))
         Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(dotGap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            mark?.dotColors?.forEach { color -> Dot(Color(color), 5.dp) }
-            if ((mark?.overflow ?: 0) > 0) {
+            visibleDots.forEach { color -> Dot(Color(color), dotSize) }
+            if (hiddenCount > 0) {
                 Text(
-                    "+${mark!!.overflow}",
+                    "+$hiddenCount",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (mark?.hasNote == true) {
-                Dot(MaterialTheme.colorScheme.tertiary, 5.dp)
+                Dot(MaterialTheme.colorScheme.tertiary, dotSize)
             }
         }
     }

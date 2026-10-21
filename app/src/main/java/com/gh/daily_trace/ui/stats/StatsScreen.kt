@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -371,8 +374,9 @@ private fun TrendBars(trend: List<PeriodStat>) {
         return
     }
     val barArea = 96.dp
+    val twoLineLabels = LocalDensity.current.fontScale > 1.4f
     Row(
-        modifier = Modifier.fillMaxWidth().height(barArea + 28.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = barArea + 28.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
         trend.forEach { p ->
@@ -396,10 +400,10 @@ private fun TrendBars(trend: List<PeriodStat>) {
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    p.label,
+                    if (twoLineLabels) p.label.replace("/", "/\n") else p.label,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    textAlign = TextAlign.Center,
                 )
             }
         }
