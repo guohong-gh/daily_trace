@@ -9,6 +9,7 @@ import com.gh.daily_trace.data.model.FrequencyRule
 import com.gh.daily_trace.data.model.FrequencyType
 import com.gh.daily_trace.data.model.Group
 import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.domain.stats.DailyRecordIndex
 import com.gh.daily_trace.domain.stats.DayOutcome
 import com.gh.daily_trace.domain.stats.GroupRate
 import com.gh.daily_trace.domain.stats.ItemRule
@@ -18,10 +19,12 @@ import com.gh.daily_trace.domain.stats.RateResult
 import com.gh.daily_trace.domain.stats.StatsCalculator
 import com.gh.daily_trace.domain.stats.StreakResult
 import com.gh.daily_trace.domain.time.DayClock
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 import java.time.YearMonth
@@ -102,7 +105,10 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
 
     val uiState: StateFlow<StatsUi> = combine(withTrend, tick) { (b, mode), _ ->
         compute(b.items, b.records, b.settings, b.rules, b.groups, b.range, mode)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsUi())
+    }
+        // 500 选项 / 数万记录时聚合是 CPU 密集操作，不能占用主线程。
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsUi())
 
     fun setRange(value: StatRange) {
         range.value = value
@@ -127,9 +133,12 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
         mode: TrendMode,
     ): StatsUi {
         val today = DayClock.from(settings).today()
-        val recordsByDay = records.groupBy { it.date }
+        val index = DailyRecordIndex.from(records)
         val rulesByItem = rules.associateBy { it.itemId }
         val partial = settings.partialCountsAsDone
+        // 索引一次遍历即可得到每项最早日期；全时段总量同样只扫一遍记录。
+        val firstDayByItem = index.firstDayByItem
+        val totalsByItem = StatsCalculator.totalsByItem(records)
 
         val (start, end) = rangeDays(rangeValue, settings, today)
 
@@ -138,18 +147,18 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
             val isQuota = rule?.type == FrequencyType.TIMES_PER_MONTH
             ItemStat(
                 item = item,
-                rate = StatsCalculator.rate(item.id, rule, recordsByDay, start, end, partial),
+                rate = StatsCalculator.rate(item.id, rule, index, start, end, partial),
                 streak = StatsCalculator.streaks(
                     itemId = item.id,
                     rule = rule,
-                    recordsByDay = recordsByDay,
+                    index = index,
                     today = today,
                     partialCountsAsDone = partial,
-                    sinceDay = sinceDayOf(item, records, today),
+                    sinceDay = firstDayByItem[item.id] ?: today,
                 ),
-                totals = StatsCalculator.totals(item.id, records),
+                totals = totalsByItem[item.id] ?: ItemTotals(),
                 isQuota = isQuota,
-                quotaDone = if (isQuota) StatsCalculator.monthlyQuotaProgress(item.id, recordsByDay, today) else 0,
+                quotaDone = if (isQuota) StatsCalculator.monthlyQuotaProgress(item.id, index, today) else 0,
                 quotaTarget = rule?.timesPerMonth ?: 0,
             )
         }
@@ -158,7 +167,7 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
             groups = groups,
             items = items,
             rulesByItem = rulesByItem,
-            recordsByDay = recordsByDay,
+            index = index,
             startDay = start,
             endDay = end,
             partialCountsAsDone = partial,
@@ -168,7 +177,7 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
         val trend = when (mode) {
             TrendMode.WEEK -> StatsCalculator.weeklyTrend(
                 items = itemRules,
-                recordsByDay = recordsByDay,
+                index = index,
                 today = today,
                 weekStart = settings.weekStart,
                 weeks = 8,
@@ -176,20 +185,19 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
             )
             TrendMode.MONTH -> StatsCalculator.monthlyTrend(
                 items = itemRules,
-                recordsByDay = recordsByDay,
+                index = index,
                 today = today,
                 months = 6,
                 partialCountsAsDone = partial,
             )
         }
 
-        val todayByItem = recordsByDay[today].orEmpty().groupBy { it.itemId }
         val todayDone = items.count {
             StatsCalculator.outcomeOf(
                 itemId = it.id,
                 day = today,
                 rule = rulesByItem[it.id],
-                recordsOfDay = todayByItem[it.id].orEmpty(),
+                recordsOfDay = index.recordsOn(today, it.id),
                 partialCountsAsDone = partial,
             ) == DayOutcome.DONE
         }
@@ -220,6 +228,4 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
             StatRange.LAST_30 -> (today - 29) to today
         }
 
-    private fun sinceDayOf(item: CheckItem, records: List<CheckRecord>, today: Long): Long =
-        records.filter { it.itemId == item.id }.minOfOrNull { it.date } ?: today
 }

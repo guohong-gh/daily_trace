@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -1217,21 +1218,50 @@ private fun DaySummaryDialog(
         onDismissRequest = onDismiss,
         title = { Text(dateLabel) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                summary.entries.forEach { entry -> SummaryEntryRow(entry) }
-                if (summary.skipNames.isNotEmpty()) {
-                    Text(
-                        "休息日：${summary.skipNames.joinToString("、")}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
+            // 500 选项的压力场景下，逐条组合会让长按浮层阻塞主线程数秒；
+            // 条目多时改为懒加载列表，普通数据仍保持原有的紧凑布局。
+            if (summary.entries.size > 20) {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(summary.entries) { entry -> SummaryEntryRow(entry) }
+                    if (summary.skipNames.isNotEmpty()) {
+                        item {
+                            Text(
+                                "休息日：${summary.skipNames.joinToString("、")}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
+                    }
+                    summary.noteText?.let { note ->
+                        item {
+                            Text(
+                                "备注：$note",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
-                summary.noteText?.let { note ->
-                    Text(
-                        "备注：$note",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    summary.entries.forEach { entry -> SummaryEntryRow(entry) }
+                    if (summary.skipNames.isNotEmpty()) {
+                        Text(
+                            "休息日：${summary.skipNames.joinToString("、")}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                    summary.noteText?.let { note ->
+                        Text(
+                            "备注：$note",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         },

@@ -6,6 +6,7 @@ import com.gh.daily_trace.data.model.FrequencyType
 import com.gh.daily_trace.data.model.RecordStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -223,6 +224,21 @@ class StatsCalculatorTest {
         assertTrue(StatsCalculator.totals(1, emptyList()).isEmpty)
         // 其他选项的记录不算本项总量
         assertTrue(StatsCalculator.totals(1, listOf(rec(today, itemId = 2))).isEmpty)
+    }
+
+    @Test
+    fun `按选项批量总量与单项聚合一致`() {
+        val records = listOf(
+            rec(today, RecordStatus.DONE).copy(value = 2.0),
+            rec(today - 1, RecordStatus.PARTIAL).copy(value = 3.0),
+            rec(today - 2, RecordStatus.SKIPPED).copy(value = 9.0),
+            rec(today, RecordStatus.DONE, itemId = 2).copy(value = 100.0),
+            rec(today, RecordStatus.PLANNED, itemId = 3).copy(value = 7.0),
+        )
+        val byItem = StatsCalculator.totalsByItem(records)
+        assertEquals(StatsCalculator.totals(1, records), byItem[1])
+        assertEquals(StatsCalculator.totals(2, records), byItem[2])
+        assertNull(byItem[3])
     }
 
     // ---------- 周/月趋势 ----------

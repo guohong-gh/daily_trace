@@ -98,8 +98,22 @@ object StatsCalculator {
         rule: FrequencyRule?,
         recordsOfDay: List<CheckRecord>,
         partialCountsAsDone: Boolean,
+    ): DayOutcome = outcomeOfRecords(
+        itemId = itemId,
+        day = day,
+        rule = rule,
+        mine = recordsOfDay.filter { it.itemId == itemId },
+        partialCountsAsDone = partialCountsAsDone,
+    )
+
+    /** [mine] 已经按 itemId 过滤，避免索引查询路径重复扫描当天全部记录。 */
+    private fun outcomeOfRecords(
+        itemId: Long,
+        day: Long,
+        rule: FrequencyRule?,
+        mine: List<CheckRecord>,
+        partialCountsAsDone: Boolean,
     ): DayOutcome {
-        val mine = recordsOfDay.filter { it.itemId == itemId }
         val skipped = mine.any { it.status == RecordStatus.SKIPPED } ||
             (rule?.allowSkip == true && day in rule.skipDates)
         if (skipped) return DayOutcome.SKIPPED
@@ -119,12 +133,35 @@ object StatsCalculator {
         startDay: Long,
         endDay: Long,
         partialCountsAsDone: Boolean,
+    ): RateResult = rate(
+        itemId = itemId,
+        rule = rule,
+        index = DailyRecordIndex.fromByDay(recordsByDay),
+        startDay = startDay,
+        endDay = endDay,
+        partialCountsAsDone = partialCountsAsDone,
+    )
+
+    fun rate(
+        itemId: Long,
+        rule: FrequencyRule?,
+        index: DailyRecordIndex,
+        startDay: Long,
+        endDay: Long,
+        partialCountsAsDone: Boolean,
     ): RateResult {
         var done = 0
         var expected = 0
         var d = startDay
         while (d <= endDay) {
-            when (outcomeOf(itemId, d, rule, recordsByDay[d].orEmpty(), partialCountsAsDone)) {
+            val outcome = outcomeOfRecords(
+                itemId = itemId,
+                day = d,
+                rule = rule,
+                mine = index.recordsOn(d, itemId),
+                partialCountsAsDone = partialCountsAsDone,
+            )
+            when (outcome) {
                 DayOutcome.DONE -> { done++; expected++ }
                 DayOutcome.PARTIAL, DayOutcome.MISSED -> expected++
                 else -> Unit
@@ -144,6 +181,24 @@ object StatsCalculator {
         items: List<CheckItem>,
         rulesByItem: Map<Long, FrequencyRule>,
         recordsByDay: Map<Long, List<CheckRecord>>,
+        startDay: Long,
+        endDay: Long,
+        partialCountsAsDone: Boolean,
+    ): List<GroupRate> = groupRates(
+        groups = groups,
+        items = items,
+        rulesByItem = rulesByItem,
+        index = DailyRecordIndex.fromByDay(recordsByDay),
+        startDay = startDay,
+        endDay = endDay,
+        partialCountsAsDone = partialCountsAsDone,
+    )
+
+    fun groupRates(
+        groups: List<Group>,
+        items: List<CheckItem>,
+        rulesByItem: Map<Long, FrequencyRule>,
+        index: DailyRecordIndex,
         startDay: Long,
         endDay: Long,
         partialCountsAsDone: Boolean,
@@ -170,7 +225,7 @@ object StatsCalculator {
                 if (rule?.type == FrequencyType.TIMES_PER_MONTH) {
                     quota++
                 } else {
-                    val result = rate(item.id, rule, recordsByDay, startDay, endDay, partialCountsAsDone)
+                    val result = rate(item.id, rule, index, startDay, endDay, partialCountsAsDone)
                     done += result.doneDays
                     expected += result.expectedDays
                 }
@@ -199,11 +254,33 @@ object StatsCalculator {
         today: Long,
         partialCountsAsDone: Boolean,
         sinceDay: Long,
+    ): StreakResult = streaks(
+        itemId = itemId,
+        rule = rule,
+        index = DailyRecordIndex.fromByDay(recordsByDay),
+        today = today,
+        partialCountsAsDone = partialCountsAsDone,
+        sinceDay = sinceDay,
+    )
+
+    fun streaks(
+        itemId: Long,
+        rule: FrequencyRule?,
+        index: DailyRecordIndex,
+        today: Long,
+        partialCountsAsDone: Boolean,
+        sinceDay: Long,
     ): StreakResult {
         val entries = ArrayList<DayEntry>()
         var d = sinceDay
         while (d <= today) {
-            val outcome = outcomeOf(itemId, d, rule, recordsByDay[d].orEmpty(), partialCountsAsDone)
+            val outcome = outcomeOfRecords(
+                itemId = itemId,
+                day = d,
+                rule = rule,
+                mine = index.recordsOn(d, itemId),
+                partialCountsAsDone = partialCountsAsDone,
+            )
             if (outcome == DayOutcome.DONE || outcome == DayOutcome.PARTIAL || outcome == DayOutcome.MISSED) {
                 entries.add(DayEntry(d, outcome))
             }
@@ -240,6 +317,16 @@ object StatsCalculator {
         itemId: Long,
         recordsByDay: Map<Long, List<CheckRecord>>,
         today: Long,
+    ): Int = monthlyQuotaProgress(
+        itemId = itemId,
+        index = DailyRecordIndex.fromByDay(recordsByDay),
+        today = today,
+    )
+
+    fun monthlyQuotaProgress(
+        itemId: Long,
+        index: DailyRecordIndex,
+        today: Long,
     ): Int {
         val ym = YearMonth.from(LocalDate.ofEpochDay(today))
         val start = ym.atDay(1).toEpochDay()
@@ -247,8 +334,8 @@ object StatsCalculator {
         var days = 0
         var d = start
         while (d <= end) {
-            val hasMark = recordsByDay[d].orEmpty()
-                .any { it.itemId == itemId && (it.status == RecordStatus.DONE || it.status == RecordStatus.PARTIAL) }
+            val hasMark = index.recordsOn(d, itemId)
+                .any { it.status == RecordStatus.DONE || it.status == RecordStatus.PARTIAL }
             if (hasMark) days++
             d++
         }
@@ -281,15 +368,55 @@ object StatsCalculator {
         return ItemTotals(doneCount = done, partialCount = partial, valueSum = sum)
     }
 
+    /**
+     * 全时段聚合总量的一次遍历版本，供统计页在大量选项时避免 O(选项数 × 记录数)。
+     * 口径与 [totals] 完全一致；没有 DONE / PARTIAL 记录的选项不会出现在结果中。
+     */
+    fun totalsByItem(records: List<CheckRecord>): Map<Long, ItemTotals> {
+        val acc = HashMap<Long, DoubleArray>()
+        for (record in records) {
+            when (record.status) {
+                RecordStatus.DONE -> {
+                    val values = acc.getOrPut(record.itemId) { DoubleArray(3) }
+                    values[0]++
+                    values[2] += record.value ?: 0.0
+                }
+                RecordStatus.PARTIAL -> {
+                    val values = acc.getOrPut(record.itemId) { DoubleArray(3) }
+                    values[1]++
+                    values[2] += record.value ?: 0.0
+                }
+                RecordStatus.SKIPPED, RecordStatus.PLANNED -> Unit
+            }
+        }
+        return acc.mapValues { (_, values) ->
+            ItemTotals(
+                doneCount = values[0].toInt(),
+                partialCount = values[1].toInt(),
+                valueSum = values[2],
+            )
+        }
+    }
+
     private fun aggregateDay(
         items: List<ItemRule>,
         recordsByDay: Map<Long, List<CheckRecord>>,
         day: Long,
         partialCountsAsDone: Boolean,
         acc: IntArray, // [done, expected]
+    ) = aggregateDay(items, day, partialCountsAsDone, acc) { itemId ->
+        recordsByDay[day].orEmpty().filter { it.itemId == itemId }
+    }
+
+    private inline fun aggregateDay(
+        items: List<ItemRule>,
+        day: Long,
+        partialCountsAsDone: Boolean,
+        acc: IntArray, // [done, expected]
+        recordsFor: (itemId: Long) -> List<CheckRecord>,
     ) {
         for (item in items) {
-            when (outcomeOf(item.itemId, day, item.rule, recordsByDay[day].orEmpty(), partialCountsAsDone)) {
+            when (outcomeOfRecords(item.itemId, day, item.rule, recordsFor(item.itemId), partialCountsAsDone)) {
                 DayOutcome.DONE -> { acc[0]++; acc[1]++ }
                 DayOutcome.PARTIAL, DayOutcome.MISSED -> acc[1]++
                 else -> Unit
@@ -305,6 +432,22 @@ object StatsCalculator {
         weekStart: Int,
         weeks: Int,
         partialCountsAsDone: Boolean,
+    ): List<PeriodStat> = weeklyTrend(
+        items = items,
+        index = DailyRecordIndex.fromByDay(recordsByDay),
+        today = today,
+        weekStart = weekStart,
+        weeks = weeks,
+        partialCountsAsDone = partialCountsAsDone,
+    )
+
+    fun weeklyTrend(
+        items: List<ItemRule>,
+        index: DailyRecordIndex,
+        today: Long,
+        weekStart: Int,
+        weeks: Int,
+        partialCountsAsDone: Boolean,
     ): List<PeriodStat> {
         val ws = weekStart.coerceIn(1, 7)
         val dow = LocalDate.ofEpochDay(today).dayOfWeek.value
@@ -315,7 +458,9 @@ object StatsCalculator {
             val acc = IntArray(2)
             var d = start
             while (d <= end) {
-                aggregateDay(items, recordsByDay, d, partialCountsAsDone, acc)
+                aggregateDay(items, d, partialCountsAsDone, acc) { itemId ->
+                    index.recordsOn(d, itemId)
+                }
                 d++
             }
             PeriodStat(
@@ -335,6 +480,20 @@ object StatsCalculator {
         today: Long,
         months: Int,
         partialCountsAsDone: Boolean,
+    ): List<PeriodStat> = monthlyTrend(
+        items = items,
+        index = DailyRecordIndex.fromByDay(recordsByDay),
+        today = today,
+        months = months,
+        partialCountsAsDone = partialCountsAsDone,
+    )
+
+    fun monthlyTrend(
+        items: List<ItemRule>,
+        index: DailyRecordIndex,
+        today: Long,
+        months: Int,
+        partialCountsAsDone: Boolean,
     ): List<PeriodStat> {
         val ymToday = YearMonth.from(LocalDate.ofEpochDay(today))
         return (months - 1 downTo 0).map { back ->
@@ -344,7 +503,9 @@ object StatsCalculator {
             val acc = IntArray(2)
             var d = start
             while (d <= end) {
-                aggregateDay(items, recordsByDay, d, partialCountsAsDone, acc)
+                aggregateDay(items, d, partialCountsAsDone, acc) { itemId ->
+                    index.recordsOn(d, itemId)
+                }
                 d++
             }
             PeriodStat(
