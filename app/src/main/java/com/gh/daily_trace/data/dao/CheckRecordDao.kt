@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.gh.daily_trace.data.model.CheckRecord
+import com.gh.daily_trace.data.model.ItemUsageCount
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -71,6 +72,14 @@ interface CheckRecordDao {
             "ORDER BY date DESC, createdAt DESC LIMIT 1"
     )
     suspend fun getLatestUpTo(itemId: Long, date: Long): CheckRecord?
+
+    /** B19 近期常用：[from]..[to]（epochDay 闭区间）内按选项统计记录条数（全部状态），取前 [limit] */
+    @Query(
+        "SELECT itemId, COUNT(*) AS useCount FROM check_records " +
+            "WHERE date BETWEEN :from AND :to " +
+            "GROUP BY itemId ORDER BY useCount DESC LIMIT :limit"
+    )
+    fun observeRecentUsage(from: Long, to: Long, limit: Int): Flow<List<ItemUsageCount>>
 
     @Query("DELETE FROM check_records WHERE id = :id")
     suspend fun delete(id: Long)

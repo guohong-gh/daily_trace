@@ -15,6 +15,7 @@ import com.gh.daily_trace.data.model.DayNote
 import com.gh.daily_trace.data.model.FilterView
 import com.gh.daily_trace.data.model.FrequencyRule
 import com.gh.daily_trace.data.model.Group
+import com.gh.daily_trace.data.model.ItemUsageCount
 import com.gh.daily_trace.data.model.Reminder
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -79,6 +80,10 @@ class DailyTraceRepository(
     /** 截至指定日期的最近一条记录（批量记录沿用值用） */
     suspend fun getLatestRecordUpTo(itemId: Long, date: Long): CheckRecord? =
         checkRecordDao.getLatestUpTo(itemId, date)
+
+    /** B19 近期常用：日期区间内按选项统计记录条数（全部状态），取前 [limit] 名 */
+    fun observeRecentUsage(from: Long, to: Long, limit: Int): Flow<List<ItemUsageCount>> =
+        checkRecordDao.observeRecentUsage(from, to, limit)
 
     suspend fun deleteRecord(id: Long) = checkRecordDao.delete(id)
     suspend fun deleteRecords(ids: List<Long>) = checkRecordDao.deleteByIds(ids)

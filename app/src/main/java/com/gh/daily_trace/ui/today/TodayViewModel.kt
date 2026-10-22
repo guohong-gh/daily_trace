@@ -112,6 +112,35 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
         buildState(core, records, date)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodayUiState())
 
+    /**
+     * B19「近期常用」：最近 30 天（含今天）按记录产生次数取 top 3，
+     * ≥1 个即显示实际数量；总选项数不足 8 个时不显示。
+     * 点击行为与卡片主按钮一致（布尔=打卡 / 计数=+1 / 时长数值=记一笔）；
+     * 与今日列表一致，受筛选视图约束（含日筛选的 hasRecords 语义，hasRecords 只看当天）。
+     */
+    val recentItems: StateFlow<List<CheckItem>> = combine(
+        core,
+        today.flatMapLatest { date ->
+            repository.observeRecentUsage(
+                from = date - RECENT_WINDOW_DAYS + 1,
+                to = date,
+                limit = RECENT_LIMIT,
+            )
+        },
+        today.flatMapLatest { repository.observeRecordsOn(it) },
+    ) { c, usage, todayRecords ->
+        if (c.items.size < RECENT_MIN_TOTAL_ITEMS) {
+            emptyList()
+        } else {
+            computeRecentFrequent(
+                items = c.items,
+                filter = c.filter,
+                usage = usage,
+                todayRecords = todayRecords,
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     init {
         refreshToday()
     }
@@ -268,4 +297,36 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
             rule = rulesByItem[item.id],
         )
     }
+}
+
+/** B19 参数：30 天窗口、top 3、总选项数 ≥8 才显示 */
+internal const val RECENT_WINDOW_DAYS = 30
+internal const val RECENT_LIMIT = 3
+internal const val RECENT_MIN_TOTAL_ITEMS = 8
+
+/**
+ * B19 纯计算：在 [items]（在册选项）中按 [usage]（次数，已按次数降序截 top）挑「近期常用」。
+ * 只保留今日可见（与今日列表一致的 [FilterMatcher] 语义，hasRecords 用当天记录）；
+ * 次数多的在前，次数并列按 sort / id 稳定排序；总数超过 [limit] 截断。
+ */
+internal fun computeRecentFrequent(
+    items: List<CheckItem>,
+    filter: com.gh.daily_trace.data.model.FilterView?,
+    usage: List<com.gh.daily_trace.data.model.ItemUsageCount>,
+    todayRecords: List<CheckRecord>,
+    limit: Int = RECENT_LIMIT,
+): List<CheckItem> {
+    val countById = usage.associate { it.itemId to it.useCount }
+    val hasRecordsByItem = todayRecords.groupBy { it.itemId }
+    return items
+        .filter { item -> item.id in countById }
+        .filter { item ->
+            FilterMatcher.matches(
+                item,
+                hasRecords = hasRecordsByItem[item.id].orEmpty().isNotEmpty(),
+                filter = filter,
+            )
+        }
+        .sortedWith(compareBy({ -countById.getValue(it.id) }, { it.sort }, { it.id }))
+        .take(limit)
 }

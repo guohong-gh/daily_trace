@@ -625,6 +625,15 @@ resume 撤恢复闹钟并重排全部启用提醒；ReminderReceiver 触发时�
 
 范围：任务书未排期项 B16「每周 N 次」、B19 常用选项置顶、B20 FAB 快速添加、C28 筛选全选；C27 筛选行配色顺延至后续批次。用户确认（2026-10-22）：B16 按配额语义处理；B19 用方案 A（自动：按最近使用次数取 top 3，不足 3 个显示实际数量 ≥1 即显示，总项数 ≥8 才显示）；B20 FAB 只放今日页；先做 C28。
 
+### M12-2：B19「⭐ 近期常用」（2026-10-22 完成）
+
+交付内容：
+1. `CheckRecordDao` 新增 `observeRecentUsage(from, to, limit)`：给定 epochDay 闭区间按 itemId 统计记录条数（全部状态含 PLANNED，一条记录 = 一次使用），SQL `GROUP BY itemId ORDER BY useCount DESC LIMIT :limit`；`DailyTraceRepository` 透传。
+2. `TodayViewModel` 新增 `recentItems: StateFlow<List<CheckItem>>`：最近 30 天（含今天）窗口取 top 3；拦截条件 `总在册项数 ≥ 8` 才显示，可见时不足 3 个显示实际数量；与今日列表同口径受筛选视图约束（FilterMatcher，hasRecords 只看当天记录）；次数并列按 sort / id 稳定排序。纯计算抽为 `computeRecentFrequent()` 顶层函数（可直接单测）。
+3. `TodayScreen` 在进度卡之后插入全跨「⭐ 近期常用」区块：每行 图标 + 名称 + 主操作按钮，点击与该选项卡片主按钮行为一致（布尔=打卡 / 计数=+1 / 时长·数值=记一笔）；不提供长按多选与明细展开，避免与卡片主列表重复。
+4. 走查运行数据：新增 W8 / W9 / W10 三个选项补足门槛（6 → 9 项），走查期间由 chip 直写与手动打卡产生少量新记录。
+5. 无 schema 变更、无新增依赖或权限；CSV / 备份口径不变。
+
 ### M12-1：B16「每周 N 次」（2026-10-22 完成）
 
 交付内容：
@@ -641,3 +650,10 @@ resume 撤恢复闹钟并重排全部启用提醒；ReminderReceiver 触发时�
 - 模拟器（Medium_Phone_API_37.0，1080×2400 手势模式）release 覆盖安装：旧 DB v5 演示数据直接启动 → v6 迁移无崩溃，6 选项 / 19 记录完整；编辑页频率 chips 出现「每周几次」，选中后输入框默认 3 且提示正确；保存后统计页 Bool1 显示「2/3 次 · 按本周配额统计，不计算连续」，分组统计标注「含 1 个配额项」。
 - 截图 `docs/screenshots/m12-01-home.png`（迁移后首页数据完整）、`m12-02-edit-chip.png`（新增 chip）、`m12-03-week-quota-editor.png`（周配额编辑态）、`m12-04-week-quota-stats.png`（统计页周配额展示）。
 - 走查后 Bool1 的频率规则保存为「每周 3 次」（演示数据变化：6 选项 / 19 条记录不变，其中 1 个选项由 DAILY 改为 TIMES_PER_WEEK）；CSV / 备份 / schema 版本迁移均已在真实设备上生效。
+
+### M12-2 验证（B19）
+
+- `testDebugUnitTest` 250/250 全绿（新增 4：DAO 30 天窗口计数排序与 limit 截断、纯计算次数排序 / 停用与不在册剔除、不足 3 个显示实际数量；上限门槛测试不依赖 stateIn 初值）。
+- `lintDebug` 0 errors（warning 与基线同集合）；`assembleRelease`（R8）成功，release 包 2,293,078 bytes（D8 内含「近期常用」字符串确认新构建）。
+- 模拟器（Medium_Phone_API_37.0）release 覆盖安装：9 个在册选项达门槛后区块出现，排序、快捷直写行为符合预期；6 个选项（<8）时不显示（_limits 测试覆盖）。
+- 截图 `docs/screenshots/m12-05-recent-frequent.png`（区块与 chip）、`m12-06-recent-frequent-done.png`（chip 打卡后被 1/9、Bool1 已完成）。

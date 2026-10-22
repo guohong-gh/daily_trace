@@ -133,6 +133,7 @@ fun TodayScreen(
     onClearFilter: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
+    val recent by viewModel.recentItems.collectAsState()
     var recordDialogItem by remember { mutableStateOf<CheckItem?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -325,6 +326,20 @@ fun TodayScreen(
                     item(key = "progress", span = { GridItemSpan(maxLineSpan) }) {
                         ProgressCard(done = state.doneCount, total = state.totalCount)
                     }
+                    if (recent.isNotEmpty()) {
+                        item(key = "recent-frequent", span = { GridItemSpan(maxLineSpan) }) {
+                            RecentFrequentSection(
+                                items = recent,
+                                onPrimary = { item ->
+                                    when (item.type) {
+                                        CheckType.BOOLEAN -> viewModel.toggleBoolean(item)
+                                        CheckType.COUNT -> viewModel.addValue(item, 1.0, "")
+                                        else -> recordDialogItem = item
+                                    }
+                                },
+                            )
+                        }
+                    }
                     state.sections.forEachIndexed { index, section ->
                         item(
                             key = "section-$index-${section.title}",
@@ -394,6 +409,59 @@ private fun MenuEntry(emoji: String, label: String, onClick: () -> Unit) {
         leadingIcon = { Text(emoji, fontSize = 16.sp) },
         onClick = onClick,
     )
+}
+
+/** B19「近期常用」：最近 30 天常用选项的快捷行；点击行为与对应卡片主按钮一致（D49） */
+@Composable
+private fun RecentFrequentSection(
+    items: List<CheckItem>,
+    onPrimary: (CheckItem) -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "⭐ 近期常用",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "最近 30 天",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items.forEach { item ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        ItemBadge(icon = item.icon, color = item.color, size = 28.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            item.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        when (item.type) {
+                            CheckType.BOOLEAN -> TextButton(onClick = { onPrimary(item) }) { Text("打卡") }
+                            CheckType.COUNT -> TextButton(onClick = { onPrimary(item) }) { Text("+1") }
+                            else -> TextButton(onClick = { onPrimary(item) }) { Text("记一笔") }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** 今日进度卡片：百分比 + 进度条 + 完成数 */
