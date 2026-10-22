@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,8 +19,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -78,6 +81,7 @@ import com.gh.daily_trace.ui.common.ItemBadge
 import com.gh.daily_trace.ui.common.RecordDialog
 import com.gh.daily_trace.ui.common.RecordStatusPill
 import com.gh.daily_trace.ui.common.SelectionActionBar
+import com.gh.daily_trace.ui.common.adaptiveGridColumns
 import com.gh.daily_trace.ui.common.formatTarget
 import com.gh.daily_trace.ui.common.formatValue
 import com.gh.daily_trace.ui.common.rememberSelectedIds
@@ -282,80 +286,88 @@ fun TodayScreen(
                 }
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    end = 16.dp,
-                    top = padding.calculateTopPadding() + 8.dp,
-                    bottom = padding.calculateBottomPadding() + 24.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                state.filterName?.let { name ->
-                    item(key = "filter-chip") {
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = MaterialTheme.shapes.medium,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(start = 12.dp, end = 4.dp),
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val columns = adaptiveGridColumns(maxWidth.value)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = padding.calculateTopPadding() + 8.dp,
+                        bottom = padding.calculateBottomPadding() + 24.dp,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    state.filterName?.let { name ->
+                        item(key = "filter-chip", span = { GridItemSpan(maxLineSpan) }) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text(
-                                    "筛选视图：$name",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                TextButton(onClick = onClearFilter) { Text("清除") }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(start = 12.dp, end = 4.dp),
+                                ) {
+                                    Text(
+                                        "筛选视图：$name",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    TextButton(onClick = onClearFilter) { Text("清除") }
+                                }
                             }
                         }
                     }
-                }
-                item(key = "progress") {
-                    ProgressCard(done = state.doneCount, total = state.totalCount)
-                }
-                state.sections.forEach { section ->
-                    item(key = "section-${section.title}") {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 10.dp, bottom = 2.dp),
+                    item(key = "progress", span = { GridItemSpan(maxLineSpan) }) {
+                        ProgressCard(done = state.doneCount, total = state.totalCount)
+                    }
+                    state.sections.forEachIndexed { index, section ->
+                        item(
+                            key = "section-$index-${section.title}",
+                            span = { GridItemSpan(maxLineSpan) },
                         ) {
-                            Text(
-                                section.title,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                            )
-                            val done = section.rows.count { it.done }
-                            Text(
-                                "$done/${section.rows.size}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 10.dp, bottom = 2.dp),
+                            ) {
+                                Text(
+                                    section.title,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                val done = section.rows.count { it.done }
+                                Text(
+                                    "$done/${section.rows.size}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        items(section.rows, key = { it.item.id }) { row ->
+                            ItemCard(
+                                row = row,
+                                selecting = selecting,
+                                selected = row.item.id in selectedIds,
+                                batchable = canBatch(row, batchValues),
+                                onLongPress = { enterSelection(row) },
+                                onToggleSelect = { toggleSelect(row) },
+                                onToggleBoolean = { viewModel.toggleBoolean(row.item) },
+                                onQuickAdd = { viewModel.addValue(row.item, 1.0, "") },
+                                onOpenRecord = { recordDialogItem = row.item },
+                                onToggleSkip = { viewModel.toggleSkipToday(row.item) },
+                                onDeleteRecord = { id ->
+                                    viewModel.deleteRecord(id)
+                                    scope.launch { snackbarHostState.showSnackbar("已删除该条记录") }
+                                },
                             )
                         }
-                    }
-                    items(section.rows, key = { it.item.id }) { row ->
-                        ItemCard(
-                            row = row,
-                            selecting = selecting,
-                            selected = row.item.id in selectedIds,
-                            batchable = canBatch(row, batchValues),
-                            onLongPress = { enterSelection(row) },
-                            onToggleSelect = { toggleSelect(row) },
-                            onToggleBoolean = { viewModel.toggleBoolean(row.item) },
-                            onQuickAdd = { viewModel.addValue(row.item, 1.0, "") },
-                            onOpenRecord = { recordDialogItem = row.item },
-                            onToggleSkip = { viewModel.toggleSkipToday(row.item) },
-                            onDeleteRecord = { id ->
-                                viewModel.deleteRecord(id)
-                                scope.launch { snackbarHostState.showSnackbar("已删除该条记录") }
-                            },
-                        )
                     }
                 }
             }

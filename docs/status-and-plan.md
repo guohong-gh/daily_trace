@@ -40,7 +40,7 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 | M8 视图与效率（3 项） | 日历滑动切月 + 年月选择器、周/年/时间线视图、长按多选批量操作 | ✅ 完成（174 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十四~十八节） |
 | M9 系统集成（4 项） | 搜索按日期范围、提醒「暂停」、每日汇总提醒、桌面小组件 | ✅ 完成（207 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十九~二十二节） |
 | M10 数据与质量（7 项） | CSV 导出、按分组统计、色盲友好、日期格式/语言、大字号回归、压力测试、崩溃日志与数据修复 | ✅ 完成（6 / 7 完成；色盲友好按产品取舍不做；240 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第二十三~二十八节） |
-| M11 品牌与平板（2 项） | 应用名改回「日迹」、平板 / 响应式布局 | ⬜ 未开始 |
+| M11 品牌与平板（2 项） | 应用名改回「日迹」、平板 / 响应式布局 | ✅ 完成（242 用例全绿；lint 0 错误；手机 / 平板走查通过；批次详情见第二十九节） |
 
 M1 验收标准：新建 4 类型选项 → 各自打卡 → 杀进程重启数据完整；MultiRecordRule 三种规则行为有单测。
 自动化部分已达成（40 用例全绿 + APK 构建成功）；模拟器（Medium_Phone_API_37.0）手动验收通过（见第八节）。
@@ -83,7 +83,7 @@ M6 发布（交付细节）：
 - release：versionName 1.0.0、R8 开启、APK 约 2.3MB、装机无崩溃；签名暂用调试密钥（正式分发前必须替换）。
 - R8 实测发现并修复：`optimization.packageScope = setOf("androidx.**","kotlin.**","kotlinx.**")` 触发 `IllegalAccessError: kotlin.sequences.d extended by om1`（跨包重打包破坏 kotlin stdlib 包内可见性）；移除该配置后今日/统计/备份在 release 下全部正常。
 - lint：9 错误清零（其中 8 个为 NotificationChannel API 26 未守卫，属 minSdk 24 真实兼容缺陷，已加版本守卫；1 个通知权限已显式检查后就地抑制）；另为开机接收器加 action 白名单校验。剩余 18 条警告登记技术债。
-- 应用名由 "Daily_Trace" 改为「每日打卡」（包名不变）。
+- 应用名由 "Daily_Trace" 改为「每日打卡」（M11 已改回「日迹」，包名不变）。
 
 ## 四、决策记录
 
@@ -107,7 +107,7 @@ M6 发布（交付细节）：
 | D16 | 2026-10-17 | 统计口径：期望日 = DAILY/CUSTOM/无规则取每天、DAYS_OF_WEEK 取所选周几、TIMES_PER_MONTH 无日级期望（改用月度配额进度）；跳过日（SKIPPED 记录或 allowSkip+skipDates）不计期望也不中断连续；PARTIAL 计完成受 partialCountsAsDone；今天未打卡宽限不中断；所有函数按 itemId 隔离 | `domain/stats/StatsCalculator`，18 用例覆盖；范围「近30天」= today-29..today |
 | D17 | 2026-10-17 | 备份：JSON v1 全表快照（org.json 手写编解码，不引入 kotlinx-serialization）；导入 = 单事务全量覆盖 + 先校验后写入；自动备份用应用生命周期触发（启动/退后台检查到期），不引入 WorkManager 后台任务；本机保留 5 份，SAF 负责用户位置选择 | `backup/` 三件套；未加密（encryption 字段保留未实现，待需求） |
 | D18 | 2026-10-17 | release 本机验收暂用调试签名（与 debug 同钥匙串，便于覆盖安装）；正式分发前替换独立签名 | `app/build.gradle.kts` release.signingConfig = debug |
-| D22 | 2026-10-17 | 应用名改回「日迹」（M11 执行） | 用户拍板；改 strings.xml 显示名，包名保持 com.gh.daily_trace |
+| D22 | 2026-10-17 | 应用名改回「日迹」（M11 已执行） | 用户拍板；已改 strings.xml 显示名与小组件标题，包名保持 com.gh.daily_trace |
 | D23 | 2026-10-17 | 提醒每周天数拆分到 `Reminder.daysOfWeek`；DB v1→v2 迁移时把旧 WEEKLY 提醒的星期从频率规则复制过来 | 原共享 `FrequencyRule.daysOfWeek`，编辑频率或提醒会互相覆盖并污染统计口径（M7-1） |
 | D24 | 2026-10-17 | CUSTOM 频率 = 每隔 N 天（1..90），锚点 = 保存当天；修改 N 时锚点重置为今天，其他编辑保留；缺参数退化为每天 | 语义可确定、可统计（M7-1，`StatsCalculator.isExpectedDay`） |
 | D25 | 2026-10-19 | 「跳过」统一写 `rule.skipDates`（休息日/请假登记）；UI 不再新建 `status=SKIPPED` 记录（旧数据仍参与统计）；跳过登记不受补卡窗口限制，但受 allowSkip 门控 | 日级语义与统计口径一致（D16）；可撤销、不产生记录噪音；未来日期可提前登记请假（M7-3） |
@@ -126,13 +126,14 @@ M6 发布（交付细节）：
 | D38 | 2026-10-20 | 搜索日期范围 = 预设「不限 / 近 7 天 / 近 30 天」+ 自定义起止；范围按逻辑日闭区间 [from, to]，null = 不限；近 N 天 = today-(N-1) ~ today；自定义用 Material3 DatePickerDialog（UTC 毫秒 → epochDay），起 > 止自动交换；仍要求关键词非空（不提供空关键词全量浏览） | 与既有逻辑日/闭区间口径一致；纯函数 SearchDateRange 可测；不增 schema、不改现有索引（M9-1） |
 | D39 | 2026-10-20 | 提醒暂停 = 全局暂停截止时刻 pausedUntil（epoch millis，null = 未暂停）；预设 1 / 8 / 24 小时 + 自定义日期时间（DatePicker + TimePicker，按 settings.timezone 解释与展示）；暂停时撤下全部系列/稍后闹钟与已发通知，并排一个到点恢复闹钟（ACTION_RESUME → 重排全部）；恢复 = 清值 + 重排；暂停中 scheduleNext / scheduleSnooze 与触发接收器均静默兜底；DB v2→v3 仅加可空列 | 一个字段覆盖所有提醒入口；到点自动恢复不依赖打开 App；展示时区与提醒/逻辑日一致（M9-2） |
 | D40 | 2026-10-20 | 每日汇总 = 可选开关（默认关闭）+ 时刻预设 20:00 / 21:00 / 22:00 + 自定义 TimePicker；WorkManager 唯一周期任务（24h，首次延迟到下一汇总时刻，时刻变更/应用启动时重排，关闭即取消）；内容 = 逻辑日当天在册选项（启用、未归档、未删除）为分母、DONE 去重为分子，三态文案（无选项 / 全部完成 / 待完成）；暂停中 / 无通知权限时静默跳过；DB v3→v4 增加 dailySummaryEnabled / dailySummaryTime，备份同步这两个字段与 pausedUntil | 汇总口径与今日进度一致；默认关闭避免突然打扰；WorkManager 周期任务容忍数分钟偏差，适合汇总而非准点提醒（M9-3） |
-| D41 | 2026-10-20 | 桌面小组件 = 4×4 单一「每日打卡 · 今日」组件：头部今日进度（DONE 去重 / 在册选项）+ 百分比进度条；快捷项按管理顺序取前 4 个在册选项，布尔型未完成显示「打卡」并点击直写 `RecordSource.WIDGET`（已有 DONE 则幂等跳过），已完成或非布尔型显示「已完成 / 记录」并点击打开 App；所有实例展示同一份数据；刷新 = 系统 30 分钟周期 + Room Flow 观察者（进程存活，300ms debounce）+ 打卡后立即刷新，无实例不查库；首版不做逐实例配置与多尺寸 | 打卡口径与今日进度一致（D40）；经典 AppWidgetProvider + RemoteViews，不引入 Glance；固定顺序避免行位漂移；系统 30 分钟重绘作为进程不在时的兜底（M9-4） |
+| D41 | 2026-10-20 | 桌面小组件 = 4×4 单一「日迹 · 今日」组件：头部今日进度（DONE 去重 / 在册选项）+ 百分比进度条；快捷项按管理顺序取前 4 个在册选项，布尔型未完成显示「打卡」并点击直写 `RecordSource.WIDGET`（已有 DONE 则幂等跳过），已完成或非布尔型显示「已完成 / 记录」并点击打开 App；所有实例展示同一份数据；刷新 = 系统 30 分钟周期 + Room Flow 观察者（进程存活，300ms debounce）+ 打卡后立即刷新，无实例不查库；首版不做逐实例配置与多尺寸 | 打卡口径与今日进度一致（D40）；经典 AppWidgetProvider + RemoteViews，不引入 Glance；固定顺序避免行位漂移；系统 30 分钟重绘作为进程不在时的兜底（M9-4） |
 | D42 | 2026-10-20 | CSV 导出 = 设置页「导出 CSV（打卡记录）」单文件全量打卡记录，一行一条；列 = 日期 / 记录时间 / 选项快照 / 状态 / 数值 / 单位 / 备注 / 来源 / 补卡 / 时区；按 `date, createdAt, id` 升序；日期为逻辑日，记录时刻按 `AppSettings.timezone`；UTF-8 BOM + CRLF，文本按 RFC 4180 转义，对以 `= + - @` 开头的用户文本加单引号防公式注入；全部状态、补卡与历史快照均导出，不做日期范围筛选；CSV 仅用于分析，选项/分组/日期备注与完整恢复仍由 JSON 备份承载 | 无 schema 变更；Excel 直接打开；CSV 不承担恢复职责（M10-1） |
 | D43 | 2026-10-20 | 分组统计 = 统计页按分组汇总在用选项；分组完成率 = 组内各选项 Σ DONE 期望日 / Σ 期望日（加权，不取各选项百分比平均），PARTIAL 沿用 partialCountsAsDone；TIMES_PER_MONTH 无日级期望，不计入分母并以「含 N 个配额项」标注；分组按 sort, id，未分组 / 孤儿 groupId 归并置末；无期望日显示 —；不改选项统计与趋势，不做分组筛选 / 下钻 | 与 D16 / D28 口径一致；无 schema；新增 GroupRate 纯函数（M10-2） |
 | D44 | 2026-10-20 | 日期显示 = 独立于界面语言的日期标签设置：`dateLanguage = SYSTEM / ZH / EN`（默认 ZH），`dateFormat = AUTO / YMD / MDY / DMY`（默认 AUTO）；统一 `DateDisplay` 纯函数覆盖今日、日历月 / 周 / 年标题、星期表头、年视图月份栏、日期详情、搜索命中、时间线与长按摘要；AUTO 中文「2026年10月20日 周二 / 10月20日 周二」、英文「Tue, Oct 20, 2026 / Tue, Oct 20」；数字格式只作用于日级日期，月 / 周 / 年标题仍用语言自然写法；不翻译应用界面，CSV / 备份文件名 / 数据库日期不受影响；SYSTEM 仅区分中文 / 英文（其他系统语言回退英文）；DB v4→v5 增加两列，备份新增可选字段、旧备份默认 ZH + AUTO | 避免完整双语翻译成本；日期格式可独立于语言（如中文界面 + 20/10/2026）；统一纯函数便于测试与跨页面一致（M10-4） |
 | D45 | 2026-10-21 | 大字号回归 = 系统 `font_scale` 1.3 / 1.5 / 2.0 下主要页面与关键弹窗不裁切、不重叠、可点击；密集网格不强行保持完整字阶：月 / 周日期数字在 >1.6 倍收紧为 labelSmall，月视图日期格高度按字阶分档（默认 48dp，大字号 60 / 66 / 76dp），彩点上限在大字号下降为 3（>1.6 倍为 2）并把隐藏项并入「+N」；日历 tab、年视图月份栏、周标题 / 名称栏、图例、统计趋势标签随字阶收紧、加宽、换行或堆叠；普通字号布局不变 | 优先保证可读与信息完整，不用横向裁切换缩放；只改 UI 自适应，不改数据、筛选与统计口径（M10-5） |
 | D46 | 2026-10-21 | 大数据量统计 = `DailyRecordIndex` 一次遍历建立「日期」与「日期+选项」索引及每项最早日期；全时段总量用 `totalsByItem` 单遍历；统计聚合在 `Dispatchers.Default` 执行；统计页与长按摘要改用 `LazyColumn` 只组合可见行（摘要 >20 条时启用，普通数据保持原弹窗布局） | 500 选项 / 5 万记录下避免 O(选项数 × 记录数) 扫描与一次性组合 500 张卡片；不改变统计口径、schema、CSV / 备份格式（M10-6） |
 | D47 | 2026-10-22 | 崩溃日志 = `Application.onCreate` 最早安装全局未捕获异常处理器，崩溃前写 `files/crash_logs/crash_*.log`（版本、设备、Android / SDK、线程、完整堆栈），最多 10 份，随后交回系统默认处理器；设置页显示份数 / 最近时间，可 SAF 导出 UTF-8 文本或清除；不采集用户数据、不联网、无新增权限。数据修复 = 设置页主动「检查数据 / 修复」：只清理孤立频率规则 / 提醒、无效分组引用（置空）、空日期备注、筛选视图失效 id，并修正越界设置；用 `PRAGMA quick_check` 报告完整性；选项彻底删除后的孤儿记录保留只读、不删除；另提供「从最近本机备份恢复」覆盖恢复 | 只修可由数据自身推导的不一致，不自动删除打卡历史；大面积异常走备份恢复；无 schema、无新增依赖 / 权限（M10-7） |
+| D48 | 2026-10-22 | 响应式布局 = 按 Material 3 官方 600 / 840dp 断点划分 compact / medium / expanded，用 `BoxWithConstraints` 计算，不引入 window-size-class 依赖；medium / expanded 且可用高度 ≥480dp 显示左侧导航栏（日迹 + 今日 / 日历 / 统计 / 管理 / 设置），内容最大宽度 1000dp 居中；内容宽度 ≥640dp 时今日 / 统计的选项卡片双列，进度、筛选条、分组标题、趋势等整行跨列；紧凑宽度与矮横屏保持原顶栏导航 | 平板获得稳定导航与双列信息密度，手机布局不变；高度门槛避免横屏手机导航栏被裁切；不新增依赖、不改数据 / CSV / 备份口径（M11） |
 
 ## 五、假设（因需求文档缺失而采用）
 
@@ -165,7 +166,6 @@ M6 发布（交付细节）：
 | P3 | lint 余留警告 17 条：UnusedResources 7、GradleDependency 6、InlinedApi 2、RedundantLabel 1、NewerVersionAvailable 1 | 不影响发布；发版前可按需清理 |
 | P3 | release 暂用调试签名；`AppSettings.encryption` 字段未实现（备份为明文 JSON） | 正式分发前替换签名；加密需求明确后再做 |
 | P3 | `androidx.work:work-runtime` 已引入但未使用（自动备份改用应用生命周期触发） | 后续做后台定时或移除依赖 |
-| P3 | 应用名当前为「每日打卡」（M6）；按 D22 将在 M11 改回「日迹」，包名保持 com.gh.daily_trace | M11 执行 |
 
 ## 八、验收记录（模拟器 Medium_Phone_API_37.0，2026-10-17）
 
@@ -598,3 +598,23 @@ resume 撤恢复闹钟并重排全部启用提醒；ReminderReceiver 触发时�
 - 演示库注入 5 类异常后「检查数据」显示：孤立规则 1、孤立提醒 1、无效分组引用 1、空日期备注 1、筛选失效引用 1，数据库完整性通过；点「修复」后 Snackbar 显示清理计数，复查为「未发现数据异常」，记录 19 条与备注 1 条保留。
 - 截图 `docs/screenshots/m10-07-diagnostics.png`：2×2 拼图（诊断与修复区块 / 数据检查发现异常 / 修复完成 / 复查通过）。
 - 走查后恢复演示 DB 快照（6 个在册选项 / 19 条记录 / 1 条备注 / 3 条规则 / 2 条提醒，首页 0/6），清除测试崩溃日志；未改 schema、备份与 CSV 口径。
+
+## 二十九、M11 品牌与响应式布局批次（2026-10-22）
+
+范围：任务书 M11 第 20 项——应用名改回「日迹」；第 21 项——平板 / 响应式布局。M11 进度 2 / 2，全部完成。
+
+交付内容：
+1. `strings.xml` 的 `app_name` 改为「日迹」，小组件名改为「日迹 · 今日」，组件头部 `widget_today.xml` 同步改为「日迹」；包名保持 `com.gh.daily_trace`，不迁移、不丢数据。
+2. 新增 `ui/common/WindowSize.kt`（D48）：按 Material 3 官方 600 / 840dp 断点划分 compact / medium / expanded，用 `BoxWithConstraints` 计算，不新增 window-size-class 依赖；`ContentMaxWidth = 1000dp`，内容宽度 ≥640dp 时网格双列。
+3. 根导航 `AppNavHost`：medium / expanded 且可用高度 ≥480dp 时显示左侧 `NavigationRail`（品牌「日迹」+ 今日 / 日历 / 统计 / 管理 / 设置），点击切换顶层目的地；紧凑宽度与矮横屏继续用原顶栏导航，避免导航栏被裁切。
+4. 今日页、统计页改为 `LazyVerticalGrid`：今日进度、筛选条、分组标题、统计范围 / 分组 / 趋势等整行跨列；选项卡片在内容宽度 ≥640dp 时双列。其他页面沿用各自顶栏，并通过根级 1000dp 限宽居中，避免平板上单列文本/表单过长。
+5. 手机（<600dp）布局与交互不变；平板字体缩放 2.0 下今日页导航栏与双列卡片无裁切。
+6. 无 schema 变更、无 CSV / 备份口径变化、无新增依赖或权限。
+
+验证：
+- `testDebugUnitTest` 242/242 全绿（新增 2：`WindowSizeTest` —— 600 / 840dp 断点、640dp 双列阈值）。
+- `lintDebug` 0 errors / 17 warnings（与基线同集合）；`assembleRelease`（R8）成功，release 包 2.17MB（2,293,078 bytes）。
+- 模拟器（Medium_Phone_API_37.0）release 覆盖安装：`wm size 2560x1600` + `density 320`（1280×800dp）平板横屏，导航栏显示、今日双列、统计双列、日历 / 设置内容限宽居中；`wm size 1600x2560` + `density 320`（800×1280dp）竖屏，导航栏保留、今日仍双列；恢复 1080×2400 手机后无导航栏、今日单列，布局与改动前一致。`font_scale 2.0` 平板复测今日页导航栏 / 双列无裁切。
+- `aapt dump badging` 显示 `application-label:'日迹'`；系统 App info 页面显示「日迹」，包名仍为 `com.gh.daily_trace`。
+- 截图 `docs/screenshots/m11-01-brand.png`（应用名）、`docs/screenshots/m11-02-tablet.png`（2×2：平板今日 / 统计 / 日历 / 设置）。
+- 走查后恢复 `wm size` / `density` / `font_scale` 默认；演示数据 6 个在册选项 / 19 条记录未变，首页 0/6；未改 schema、备份与 CSV 口径。

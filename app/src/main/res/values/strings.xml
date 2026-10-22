@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">每日打卡</string>
-    <string name="widget_name">每日打卡 · 今日</string>
+    <string name="app_name">日迹</string>
+    <string name="widget_name">日迹 · 今日</string>
     <string name="widget_description">今日进度与最多 4 个快捷打卡项</string>
 </resources>

@@ -5,6 +5,7 @@ package com.gh.daily_trace.ui.stats
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,8 +17,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -58,6 +61,7 @@ import com.gh.daily_trace.ui.common.ItemBadge
 import com.gh.daily_trace.ui.common.LoadingState
 import com.gh.daily_trace.ui.common.SectionTitle
 import com.gh.daily_trace.ui.common.StatusPill
+import com.gh.daily_trace.ui.common.adaptiveGridColumns
 import com.gh.daily_trace.ui.common.formatMinutes
 import com.gh.daily_trace.ui.common.formatValue
 import kotlin.math.roundToInt
@@ -97,88 +101,97 @@ fun StatsScreen(viewModel: StatsViewModel, onBack: () -> Unit) {
             }
             return@Scaffold
         }
-        LazyColumn(
-            modifier = Modifier
+        BoxWithConstraints(
+            Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { TodaySummaryCard(done = state.todayDone, total = state.todayTotal) }
+            val columns = adaptiveGridColumns(maxWidth.value)
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    TodaySummaryCard(done = state.todayDone, total = state.todayTotal)
+                }
 
-            item { SectionTitle("统计范围") }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatRange.entries.forEach { r ->
-                        FilterChip(
-                            selected = state.range == r,
-                            onClick = { viewModel.setRange(r) },
-                            label = { Text(r.label) },
-                        )
-                    }
-                }
-            }
-
-            item { SectionTitle("分组统计") }
-            if (state.groupStats.isEmpty()) {
-                item {
-                    Text(
-                        "暂无可统计的分组",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                item {
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            state.groupStats.forEach { stat -> GroupStatRow(stat) }
-                        }
-                    }
-                }
-            }
-
-            item { SectionTitle("选项统计") }
-            if (state.itemStats.isEmpty()) {
-                item {
-                    EmptyState(
-                        emoji = "📊",
-                        title = "暂无使用中的选项",
-                        description = "创建并启用打卡选项后，这里会显示完成率与连续天数",
-                    )
-                }
-            } else {
-                items(state.itemStats, key = { it.item.id }) { stat ->
-                    ItemStatCard(stat)
-                }
-            }
-
-            item {
-                SectionTitle("趋势") {
+                item(span = { GridItemSpan(maxLineSpan) }) { SectionTitle("统计范围") }
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TrendMode.entries.forEach { m ->
+                        StatRange.entries.forEach { r ->
                             FilterChip(
-                                selected = state.trendMode == m,
-                                onClick = { viewModel.setTrendMode(m) },
-                                label = { Text(m.label) },
+                                selected = state.range == r,
+                                onClick = { viewModel.setRange(r) },
+                                label = { Text(r.label) },
                             )
                         }
                     }
                 }
-            }
-            item {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
+
+                item(span = { GridItemSpan(maxLineSpan) }) { SectionTitle("分组统计") }
+                if (state.groupStats.isEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
-                            "柱高 = 所有使用中选项的合计完成率",
+                            "暂无可统计的分组",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Spacer(Modifier.height(12.dp))
-                        TrendBars(state.trend)
+                    }
+                } else {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp),
+                            ) {
+                                state.groupStats.forEach { stat -> GroupStatRow(stat) }
+                            }
+                        }
+                    }
+                }
+
+                item(span = { GridItemSpan(maxLineSpan) }) { SectionTitle("选项统计") }
+                if (state.itemStats.isEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        EmptyState(
+                            emoji = "📊",
+                            title = "暂无使用中的选项",
+                            description = "创建并启用打卡选项后，这里会显示完成率与连续天数",
+                        )
+                    }
+                } else {
+                    items(state.itemStats, key = { it.item.id }) { stat ->
+                        ItemStatCard(stat)
+                    }
+                }
+
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SectionTitle("趋势") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TrendMode.entries.forEach { m ->
+                                FilterChip(
+                                    selected = state.trendMode == m,
+                                    onClick = { viewModel.setTrendMode(m) },
+                                    label = { Text(m.label) },
+                                )
+                            }
+                        }
+                    }
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(
+                                "柱高 = 所有使用中选项的合计完成率",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            TrendBars(state.trend)
+                        }
                     }
                 }
             }
