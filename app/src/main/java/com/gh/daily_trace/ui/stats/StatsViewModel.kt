@@ -9,6 +9,8 @@ import com.gh.daily_trace.data.model.FrequencyRule
 import com.gh.daily_trace.data.model.FrequencyType
 import com.gh.daily_trace.data.model.Group
 import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.domain.report.PeriodReport
+import com.gh.daily_trace.domain.report.buildPeriodReport
 import com.gh.daily_trace.domain.stats.DailyRecordIndex
 import com.gh.daily_trace.domain.stats.DayOutcome
 import com.gh.daily_trace.domain.stats.GroupRate
@@ -41,6 +43,12 @@ enum class TrendMode(val label: String) {
     MONTH("月"),
 }
 
+/** 周期报告模式（B18）：周报 = 本周（按 weekStart 对齐），月报 = 本月 */
+enum class ReportMode(val label: String) {
+    WEEK("周报"),
+    MONTH("月报"),
+}
+
 data class ItemStat(
     val item: CheckItem,
     val rate: RateResult,
@@ -57,11 +65,14 @@ data class ItemStat(
 data class StatsUi(
     val range: StatRange = StatRange.THIS_WEEK,
     val trendMode: TrendMode = TrendMode.WEEK,
+    val reportMode: ReportMode = ReportMode.WEEK,
     val todayDone: Int = 0,
     val todayTotal: Int = 0,
     val groupStats: List<GroupRate> = emptyList(),
     val itemStats: List<ItemStat> = emptyList(),
     val trend: List<PeriodStat> = emptyList(),
+    /** 周期报告（B18）：null = 尚无在用选项，只在有在用选项时计算 */
+    val report: PeriodReport? = null,
     val loaded: Boolean = false,
 )
 
@@ -70,6 +81,7 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
 
     private val range = MutableStateFlow(StatRange.THIS_WEEK)
     private val trendMode = MutableStateFlow(TrendMode.WEEK)
+    private val reportMode = MutableStateFlow(ReportMode.WEEK)
     private val tick = MutableStateFlow(0)
 
     private data class Core(
@@ -103,10 +115,21 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
         Base(c.items, c.records, c.settings, c.rules, c.groups, rangeValue)
     }
 
-    private val withTrend = combine(base, trendMode) { b, mode -> b to mode }
+    private val withTrend = combine(base, trendMode) { b, mode -> Trended(b, mode) }
 
-    val uiState: StateFlow<StatsUi> = combine(withTrend, tick) { (b, mode), _ ->
-        compute(b.items, b.records, b.settings, b.rules, b.groups, b.range, mode)
+    private data class Trended(val base: Base, val mode: TrendMode)
+
+    val uiState: StateFlow<StatsUi> = combine(withTrend, reportMode, tick) { t, report, _ ->
+        compute(
+            items = t.base.items,
+            records = t.base.records,
+            settings = t.base.settings,
+            rules = t.base.rules,
+            groups = t.base.groups,
+            rangeValue = t.base.range,
+            mode = t.mode,
+            reportModeValue = report,
+        )
     }
         // 500 选项 / 数万记录时聚合是 CPU 密集操作，不能占用主线程。
         .flowOn(Dispatchers.Default)
@@ -118,6 +141,10 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
 
     fun setTrendMode(value: TrendMode) {
         trendMode.value = value
+    }
+
+    fun setReportMode(value: ReportMode) {
+        reportMode.value = value
     }
 
     /** 回前台刷新（跨逻辑日边界） */
@@ -133,6 +160,7 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
         groups: List<Group>,
         rangeValue: StatRange,
         mode: TrendMode,
+        reportModeValue: ReportMode = ReportMode.WEEK,
     ): StatsUi {
         val today = DayClock.from(settings).today()
         val index = DailyRecordIndex.from(records)
@@ -208,6 +236,24 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
             )
         }
 
+        val report = if (items.isEmpty()) {
+            null
+        } else {
+            val (reportStart, reportEnd) = when (reportModeValue) {
+                // 周报/月报窗口与「统计范围」同口径复用 rangeDays（本周 / 本月截至今天）
+                ReportMode.WEEK -> rangeDays(StatRange.THIS_WEEK, settings, today)
+                ReportMode.MONTH -> rangeDays(StatRange.THIS_MONTH, settings, today)
+            }
+            buildPeriodReport(
+                items = items,
+                rulesByItem = rulesByItem,
+                index = index,
+                startDay = reportStart,
+                endDay = reportEnd,
+                partialCountsAsDone = partial,
+            )
+        }
+
         val todayDone = items.count {
             StatsCalculator.outcomeOf(
                 itemId = it.id,
@@ -221,11 +267,13 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
         return StatsUi(
             range = rangeValue,
             trendMode = mode,
+            reportMode = reportModeValue,
             todayDone = todayDone,
             todayTotal = items.size,
             groupStats = groupStats,
             itemStats = itemStats,
             trend = trend,
+            report = report,
             loaded = true,
         )
     }

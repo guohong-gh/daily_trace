@@ -53,6 +53,9 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.gh.daily_trace.data.model.CheckType
 import com.gh.daily_trace.di.Container
+import com.gh.daily_trace.domain.report.PeriodReport
+import com.gh.daily_trace.domain.report.reportDeltaText
+import com.gh.daily_trace.domain.report.reportRateText
 import com.gh.daily_trace.domain.stats.GroupRate
 import com.gh.daily_trace.domain.stats.PeriodStat
 import com.gh.daily_trace.domain.stats.RateResult
@@ -64,6 +67,7 @@ import com.gh.daily_trace.ui.common.StatusPill
 import com.gh.daily_trace.ui.common.adaptiveGridColumns
 import com.gh.daily_trace.ui.common.formatMinutes
 import com.gh.daily_trace.ui.common.formatValue
+import java.time.LocalDate
 import kotlin.math.roundToInt
 
 @Composable
@@ -192,6 +196,32 @@ fun StatsScreen(viewModel: StatsViewModel, onBack: () -> Unit) {
                             Spacer(Modifier.height(12.dp))
                             TrendBars(state.trend)
                         }
+                    }
+                }
+
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SectionTitle("周期报告") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ReportMode.entries.forEach { m ->
+                                FilterChip(
+                                    selected = state.reportMode == m,
+                                    onClick = { viewModel.setReportMode(m) },
+                                    label = { Text(m.label) },
+                                )
+                            }
+                        }
+                    }
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    val report = state.report
+                    if (report == null) {
+                        EmptyState(
+                            emoji = "📝",
+                            title = "暂无可统计的选项",
+                            description = "创建并启用打卡选项后，这里会给出一份周期报告",
+                        )
+                    } else {
+                        PeriodReportCard(report = report, reportMode = state.reportMode)
                     }
                 }
             }
@@ -429,6 +459,80 @@ private fun TrendBars(trend: List<PeriodStat>) {
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+/** 「M/d」短格式（统计页内沿用趋势柱标签口径，不引入日期语言设置） */
+private fun dayLabel(epochDay: Long): String {
+    val date = LocalDate.ofEpochDay(epochDay)
+    return "${date.monthValue}/${date.dayOfMonth}"
+}
+
+/** 周期报告卡（B18）：一句话概览 + 完成率 + 实际完成明细 + 最佳日 / 最勤选项 / 上期对比 */
+@Composable
+private fun PeriodReportCard(report: PeriodReport, reportMode: ReportMode) {
+    val title = when (reportMode) {
+        ReportMode.WEEK -> "本周报告"
+        ReportMode.MONTH -> "本月报告"
+    }
+    val dayText = when (reportMode) {
+        ReportMode.WEEK -> "本周"
+        ReportMode.MONTH -> "本月"
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${dayLabel(report.windowStart)} ~ ${dayLabel(report.windowEnd)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            val rateText = reportRateText(report.rate)
+            Text(
+                "${dayText}完成率 $rateText",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Text(
+                "完成 ${report.completions} 项次 · 打卡 ${report.recordDays} 天",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (report.partialCount > 0) {
+                Text(
+                    "部分完成 ${report.partialCount} 条",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            val best = report.bestDay
+            Text(
+                if (best != null) "最佳日 ${dayLabel(best)}（完成 ${report.bestDayCount} 项）"
+                else "${dayText}还没有完成的记录",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (report.topItems.isNotEmpty()) {
+                Text(
+                    "最勤选项：" + report.topItems.joinToString("、") { "${it.name} ×${it.doneDays}" },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            val delta = reportDeltaText(report.rate, report.previousRate)
+            if (delta != null) {
+                Text(
+                    "$delta（上期 ${reportRateText(report.previousRate)}）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

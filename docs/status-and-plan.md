@@ -43,6 +43,7 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 | M11 品牌与平板（2 项） | 应用名改回「日迹」、平板 / 响应式布局 | ✅ 完成（242 用例全绿；lint 0 错误；手机 / 平板走查通过；批次详情见第二十九节） |
 | M12 高频与频率补全（4 项） | B16「每周 N 次」+ DB v6、B19 近期常用、B20 今日页 FAB、C28 全选（C27 配色顺延） | ✅ 完成（250 用例全绿；lint 0 错误；每批走查通过；批次详情见第三十节） |
 | C27 筛选行视觉强化（顺延项） | 筛选编辑器行 = 颜色块 / 图标徽章 + 名称 + 复选框 | ✅ 完成（见第三十一节） |
+| B18 周报 / 月报报告式汇总（顺延项收尾） | 统计页「周期报告」卡（周报 / 月报） | ✅ 完成（见第三十二节） |
 
 M1 验收标准：新建 4 类型选项 → 各自打卡 → 杀进程重启数据完整；MultiRecordRule 三种规则行为有单测。
 自动化部分已达成（40 用例全绿 + APK 构建成功）；模拟器（Medium_Phone_API_37.0）手动验收通过（见第八节）。
@@ -686,4 +687,24 @@ M12-3 收尾后开工的顺延项：筛选视图编辑器的选中行由「文�
 - `testDebugUnitTest` 250/250 全绿（纯 UI 变更，保持基线）；`lintDebug` 0 errors / 17 warnings；`assembleRelease`（R8）成功，release 包 2,309,462 bytes。
 - 模拟器（Medium_Phone_API_37.0）release 覆盖安装走查：筛选视图 → RunRead 编辑器，选项行显示各选项颜色浅底 emoji 徽章（演示项无 emoji 显示默认「•」，徽章底色随选项色变化），分组行显示「健康（绿）/ 学习（蓝）」分组色圆点；截图 `docs/screenshots/c27-01-filter-rows.png`（选项行）、`c27-02-filter-group-rows.png`（分组行）。
 - 交互验证：点击选项行任意位置（含行首徽章与名称）均可切换选中——点击 Bool1 行后像素级确认复选框由空框变为实心勾选态，再点「取消」退出不保存；截图复检行内布局为「徽章 + 名称（填满中段）+ 行尾复选框」，无遮挡无裁切。
+
+## 三十二、B18 周报 / 月报报告式汇总批次（2026-10-22）
+
+任务书最后一项未排期（现状仅周/月趋势柱状图）：统计页新增「周期报告」卡，把一段周期聚合成报告式文字汇总。
+
+交付内容：
+1. 新域 `domain/report/PeriodReport.kt`：纯函数 `buildPeriodReport(items, rulesByItem, index, startDay, endDay, partialCountsAsDone)`，双口径并列：
+   - 期望日口径（与统计页 / 趋势柱一致，D16）：完成 / 期望「项×日」聚合为完成率（配额类型无日级期望、不计分母）；
+   - 实际完成口径（报告专属）：完成项次 = DONE 记录数（partialCountsAsDone 时 PARTIAL 计入）、打卡天数 = 当天至少一个在用选项有完成记录、最佳日 = 当天完成的不同选项数最多（并列取最早）、最勤选项 = 期内实际完成天数 top3（并列保持管理顺序）。
+   - 上期对比 = 紧邻等长时段（本月 1..22 → 上月同长 22 天）期望日完成率；仅统计在用选项（启用、未归档、未删除）。
+   - 文案纯函数 `reportRateText`（null → 「—」，否则整数百分比）与 `reportDeltaText`（±Npp / 持平，任一缺失不展示）。
+2. `StatsViewModel`：新增 `ReportMode`（周报 = 本周按 weekStart 对齐 / 月报 = 本月，窗口与「统计范围」同口径复用 rangeDays）+ `report` 进 `StatsUi`；沿用 flowOn(Default) 后台聚合。
+3. `StatsScreen`：趋势卡后新增「周期报告」区（周报 / 月报 FilterChip）+ `PeriodReportCard`：标题与日期段、当期完成率、完成项次 · 打卡天数、部分完成注记、最佳日、最勤选项「名称 ×N」、较上期对比；无在用选项显示 EmptyState。日期段沿用统计页「M/d」短格式（不引入日期语言设置）。
+4. 无 schema / 依赖 / 权限变化，不改 CSV / 备份。
+
+验证：
+- `testDebugUnitTest` 260/260 全绿（新增 `domain/report/PeriodReportTest` 10 例：空数据基线、DAILY 聚合、最佳日并列取最早、PARTIAL 两口径、配额项无期望但计入实际口径、最勤选项前三与并列顺序、上期等长窗口、完成率 / 差值文案、单日窗口守卫）。
+- `lintDebug` 0 errors / 17 warnings；`assembleRelease`（R8）成功，release 包含 B18 内容（classes.dex 含「周期报告」「最佳日」字符串）。
+- 模拟器（Medium_Phone_API_37.0）release 覆盖安装走查：统计页 → 周期报告（周报 / 月报切换、数值与截图核对）。
+- 截图 `docs/screenshots/b18-01-report-week.png`（周报）、`b18-02-report-month.png`（月报）。
 
