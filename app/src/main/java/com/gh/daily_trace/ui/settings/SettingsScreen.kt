@@ -83,6 +83,8 @@ fun SettingsRoute(container: Container, onBack: () -> Unit) {
                     repository = container.repository,
                     backupManager = container.backupManager,
                     autoBackup = container.autoBackup,
+                    dataRepair = container.dataRepair,
+                    crashLogs = container.crashLogs,
                     reminderScheduler = container.reminderScheduler,
                     dailySummaryScheduler = container.dailySummaryScheduler,
                 )
@@ -96,10 +98,15 @@ fun SettingsRoute(container: Container, onBack: () -> Unit) {
 fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val settings by viewModel.settings.collectAsState()
     val backupInfo by viewModel.backupInfo.collectAsState()
+    val crashInfo by viewModel.crashInfo.collectAsState()
+    val dataHealth by viewModel.dataHealth.collectAsState()
+    val checkingData by viewModel.checkingData.collectAsState()
     val message by viewModel.message.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
+    var pendingRestore by remember { mutableStateOf(false) }
+    var pendingClearCrash by remember { mutableStateOf(false) }
     var pauseStep by remember { mutableStateOf(PauseStep.NONE) }
     var pauseDate by remember { mutableStateOf<Long?>(null) }
     var summaryTimeDialog by remember { mutableStateOf(false) }
@@ -129,9 +136,10 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
         }
     }
 
-    // 回到设置页时刷新备份概况（后台自动备份可能刚发生）
+    // 回到设置页时刷新备份概况（后台自动备份可能刚发生）与崩溃日志概况
     LifecycleResumeEffect(Unit) {
         viewModel.refreshBackupInfo()
+        viewModel.refreshCrashInfo()
         onPauseOrDispose { }
     }
 
@@ -149,6 +157,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) pendingImport = uri
+    }
+    val crashExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) viewModel.exportCrashLogsTo(uri, context.contentResolver)
     }
 
     val versionName = remember {
@@ -424,6 +437,52 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 )
             }
 
+            SectionCard(title = "诊断与修复") {
+                OutlinedButton(
+                    onClick = { viewModel.checkData() },
+                    enabled = !checkingData,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (checkingData) "检查中…" else "检查数据") }
+                Text(
+                    "检查孤立频率规则 / 提醒、无效分组引用、空日期备注与越界设置；不会删除打卡历史。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = { pendingRestore = true },
+                    enabled = backupInfo.count > 0,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("从最近本机备份恢复") }
+                Text(
+                    "数据大面积异常时，可用最近一份本机备份覆盖恢复（自动备份或「立即备份」均可）。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "崩溃日志 ${crashInfo.count} 份 · 最近 ${formatBackupTime(crashInfo.lastAt)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { crashExportLauncher.launch(defaultCrashName()) },
+                        enabled = crashInfo.count > 0,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("导出崩溃日志") }
+                    OutlinedButton(
+                        onClick = { pendingClearCrash = true },
+                        enabled = crashInfo.count > 0,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("清除") }
+                }
+                Text(
+                    "崩溃日志仅含版本、设备与堆栈，保存在应用私有目录，最多保留 ${com.gh.daily_trace.diagnostics.CrashLogManager.MAX_FILES} 份。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             SectionCard(title = "关于") {
                 InfoRow("版本", versionName)
                 InfoRow("时区", "${settings.timezone}（暂不支持修改）")
@@ -544,6 +603,130 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             },
         )
     }
+
+    dataHealth?.let { report ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissDataHealth,
+            title = { Text("数据检查") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        "选项 ${report.items}（启用 ${report.activeItems}）· 记录 ${report.records} · 备注 ${report.notes}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "分组 ${report.groups} · 规则 ${report.rules} · 提醒 ${report.reminders} · 筛选 ${report.filterViews}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        if (report.integrityOk) "数据库完整性：通过" else "数据库完整性：${report.quickCheck}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (report.integrityOk) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    var hasIssue = false
+                    if (report.orphanRules > 0) {
+                        hasIssue = true
+                        Text("孤立频率规则 ${report.orphanRules} 条（所属选项已不存在）", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (report.orphanReminders > 0) {
+                        hasIssue = true
+                        Text("孤立提醒 ${report.orphanReminders} 条（所属选项已不存在）", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (report.invalidGroupRefs > 0) {
+                        hasIssue = true
+                        Text("无效分组引用 ${report.invalidGroupRefs} 个（将置为未分组）", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (report.emptyNotes > 0) {
+                        hasIssue = true
+                        Text("空日期备注 ${report.emptyNotes} 条（将清理）", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (report.staleFilterViews > 0) {
+                        hasIssue = true
+                        Text("筛选视图含失效引用 ${report.staleFilterViews} 个（将清理引用）", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (report.settingsMissing) {
+                        hasIssue = true
+                        Text("设置缺失（将重建默认设置）", style = MaterialTheme.typography.bodySmall)
+                    } else if (report.settingsIssues > 0) {
+                        hasIssue = true
+                        Text("设置值越界（将修正为合法范围）", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (report.orphanRecords > 0) {
+                        hasIssue = true
+                        Text(
+                            "历史记录 ${report.orphanRecords} 条（所属选项已彻底删除，保留只读展示，不删除）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (!hasIssue) {
+                        Text("未发现数据异常。", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (!report.integrityOk) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "数据库文件存在完整性错误，建议关闭本弹窗后从最近本机备份恢复。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (report.integrityOk && report.fixableIssues > 0) {
+                    TextButton(onClick = { viewModel.repairData() }, enabled = !checkingData) { Text("修复") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissDataHealth() }) { Text("关闭") }
+            },
+        )
+    }
+
+    if (pendingRestore) {
+        AlertDialog(
+            onDismissRequest = { pendingRestore = false },
+            title = { Text("从最近本机备份恢复？") },
+            text = {
+                Text(
+                    "将用最近一份自动备份覆盖当前全部数据（选项、记录、备注、分组、提醒、设置），且不可撤销。" +
+                        if (backupInfo.count > 0) "\n最近备份：${formatBackupTime(backupInfo.lastAt)}" else ""
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingRestore = false
+                    viewModel.restoreLatestBackup()
+                }) { Text("覆盖恢复") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestore = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (pendingClearCrash) {
+        AlertDialog(
+            onDismissRequest = { pendingClearCrash = false },
+            title = { Text("清除崩溃日志？") },
+            text = { Text("将删除本机保存的全部崩溃日志（${crashInfo.count} 份），不可撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingClearCrash = false
+                    viewModel.clearCrashLogs()
+                }) { Text("清除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingClearCrash = false }) { Text("取消") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -573,6 +756,9 @@ private fun defaultBackupName(): String =
 
 private fun defaultCsvName(zone: ZoneId): String =
     "daily_trace_records_" + LocalDate.now(zone).format(DateTimeFormatter.BASIC_ISO_DATE) + ".csv"
+
+private fun defaultCrashName(): String =
+    "daily_trace_crash_" + SimpleDateFormat("yyyyMMdd", Locale.US).format(Date()) + ".txt"
 
 private fun formatBackupTime(at: Long?): String =
     if (at == null) "暂无" else SimpleDateFormat("M-d HH:mm", Locale.US).format(Date(at))

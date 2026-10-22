@@ -32,6 +32,10 @@ interface FrequencyRuleDao {
     @Query("DELETE FROM frequency_rules WHERE itemId = :itemId")
     suspend fun deleteForItem(itemId: Long)
 
+    /** 数据修复：删除选项已不存在的孤立频率规则 */
+    @Query("DELETE FROM frequency_rules WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     /** 备份导入：批量写入（先清空后插入，保留原 id） */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(rules: List<FrequencyRule>)

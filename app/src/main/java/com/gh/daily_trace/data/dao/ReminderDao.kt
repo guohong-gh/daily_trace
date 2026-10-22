@@ -39,6 +39,10 @@ interface ReminderDao {
     @Query("DELETE FROM reminders WHERE itemId = :itemId")
     suspend fun deleteForItem(itemId: Long)
 
+    /** 数据修复：删除选项已不存在的孤立提醒 */
+    @Query("DELETE FROM reminders WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     /** 备份导入：批量写入（先清空后插入，保留原 id） */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(reminders: List<Reminder>)

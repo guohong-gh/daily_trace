@@ -1,6 +1,7 @@
 package com.gh.daily_trace
 
 import android.app.Application
+import com.gh.daily_trace.diagnostics.CrashLogManager
 import com.gh.daily_trace.di.Container
 import com.gh.daily_trace.reminder.ReminderNotifier
 import com.gh.daily_trace.widget.TodayWidget
@@ -21,6 +22,8 @@ class DailyTraceApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 尽早安装崩溃日志处理器，后续初始化异常也能留下现场。
+        CrashLogManager.install(this)
         container = Container(this)
         ReminderNotifier.ensureChannels(this)
         // 启动时重排一次提醒（覆盖强制停止等导致闹钟被系统清空的场景）

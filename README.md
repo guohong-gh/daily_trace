@@ -31,6 +31,7 @@ app/src/main/java/com/gh/daily_trace/
   reminder/                  提醒设施：AlarmManager 调度、WorkManager 每日汇总、通知渠道与动作、开机/时区变更重排
   widget/                    桌面小组件：RemoteViews 渲染、AppWidgetProvider、快捷打卡接收器
   backup/                    备份：JSON 编解码（BackupCodec）、事务导入导出（BackupManager）、本机自动备份（AutoBackup）
+  diagnostics/               诊断：崩溃日志捕获 / 导出（CrashLogManager）、数据检查与安全修复（DataRepairManager）
   ui/                        界面：navigation / today / calendar / datedetail / search / filter / stats / manage / itemedit / settings / common / theme
 app/src/test/                单元测试（Robolectric 内存库 + 纯逻辑单测）
 ```
@@ -52,6 +53,7 @@ app/src/test/                单元测试（Robolectric 内存库 + 纯逻辑单
 - 大数据量：统计聚合使用「日期 + 选项」索引并移到后台执行；统计页、长按摘要、时间线与日期详情均为懒加载列表，500 选项 / 5 万记录下不一次性组合全部条目（M10-6）。
 - 备份：JSON v1 全表快照（选项含回收站；枚举存 name；可空字段存 null；含暂停与每日汇总设置）；导入为单事务全量覆盖，先校验后写入（非法数据不动库），成功后自动重排提醒与汇总任务；本机自动备份在应用启动与退后台时按间隔检查，存 `files/backups/`（保留最近 5 份），设置页可导出到 SAF 自选位置或手动立即备份。
 - CSV 导出：设置页可将全部打卡记录导出为 UTF-8 BOM + CRLF 的 CSV（一行一条，含日期、记录时间、选项快照、状态、数值、单位、备注、来源、补卡、时区），供 Excel 等表格分析；JSON 备份仍负责完整恢复。
+- 诊断与修复：全局未捕获异常写入 `files/crash_logs/`（含版本、设备与堆栈，最多 10 份，可导出 / 清除）；设置页可检查并安全修复孤立规则 / 提醒、无效分组引用、空日期备注、失效筛选 id 与越界设置，保留打卡历史；`PRAGMA quick_check` 报告数据库完整性，并可从最近本机备份覆盖恢复。
 
 ## 界面设计（UI v2，2026-10-17）
 

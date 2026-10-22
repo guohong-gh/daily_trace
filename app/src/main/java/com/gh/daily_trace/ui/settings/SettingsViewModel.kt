@@ -8,6 +8,9 @@ import com.gh.daily_trace.backup.AutoBackup
 import com.gh.daily_trace.backup.BackupManager
 import com.gh.daily_trace.data.model.AppSettings
 import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.diagnostics.CrashLogManager
+import com.gh.daily_trace.diagnostics.DataHealth
+import com.gh.daily_trace.diagnostics.DataRepairManager
 import com.gh.daily_trace.domain.csv.CsvExporter
 import com.gh.daily_trace.domain.reminder.ReminderPause
 import com.gh.daily_trace.reminder.DailySummaryScheduler
@@ -21,6 +24,9 @@ import kotlinx.coroutines.withContext
 /** 本机备份概况：份数与最近一次时间 */
 data class BackupInfo(val count: Int = 0, val lastAt: Long? = null)
 
+/** 本机崩溃日志概况 */
+data class CrashInfo(val count: Int = 0, val lastAt: Long? = null)
+
 /**
  * 设置页：读改写即时保存（单写者，乐观更新）。
  * 备份区块：导出（SAF 目标 URI）、导入（覆盖式，完成后重排提醒）、本机自动备份。
@@ -29,6 +35,8 @@ class SettingsViewModel(
     private val repository: DailyTraceRepository,
     private val backupManager: BackupManager,
     private val autoBackup: AutoBackup,
+    private val dataRepair: DataRepairManager,
+    private val crashLogs: CrashLogManager,
     private val reminderScheduler: ReminderScheduler,
     private val dailySummaryScheduler: DailySummaryScheduler,
 ) : ViewModel() {
@@ -38,6 +46,15 @@ class SettingsViewModel(
 
     private val _backupInfo = MutableStateFlow(BackupInfo())
     val backupInfo: StateFlow<BackupInfo> = _backupInfo
+
+    private val _crashInfo = MutableStateFlow(CrashInfo())
+    val crashInfo: StateFlow<CrashInfo> = _crashInfo
+
+    private val _dataHealth = MutableStateFlow<DataHealth?>(null)
+    val dataHealth: StateFlow<DataHealth?> = _dataHealth
+
+    private val _checkingData = MutableStateFlow(false)
+    val checkingData: StateFlow<Boolean> = _checkingData
 
     /** 一次性提示（Snackbar）；展示后调用 [consumeMessage] */
     private val _message = MutableStateFlow<String?>(null)
@@ -56,6 +73,7 @@ class SettingsViewModel(
             }
         }
         refreshBackupInfo()
+        refreshCrashInfo()
     }
 
     fun update(transform: (AppSettings) -> AppSettings) {
@@ -186,6 +204,120 @@ class SettingsViewModel(
                         "导入完成：选项 ${c.items}、记录 ${c.records}、备注 ${c.dayNotes}、分组 ${c.groups}、提醒 ${c.reminders}"
                 }
                 .onFailure { _message.value = "导入失败：${it.message ?: "备份数据不正确"}" }
+        }
+    }
+
+    fun refreshCrashInfo() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val files = crashLogs.list()
+            _crashInfo.value = CrashInfo(count = files.size, lastAt = files.firstOrNull()?.lastModified())
+        }
+    }
+
+    /** 检查数据一致性；只读扫描，由用户在结果弹窗里决定是否修复 */
+    fun checkData() {
+        if (_checkingData.value) return
+        _checkingData.value = true
+        viewModelScope.launch {
+            val result = runCatching { dataRepair.scan() }
+            _checkingData.value = false
+            result
+                .onSuccess { report ->
+                    _dataHealth.value = report
+                    if (!report.integrityOk) {
+                        _message.value = "数据库完整性检查未通过，建议从最近本机备份恢复"
+                    } else if (report.totalIssues == 0) {
+                        _message.value = "数据检查通过：未发现异常"
+                    }
+                }
+                .onFailure { _message.value = "数据检查失败：${it.message ?: "未知错误"}" }
+        }
+    }
+
+    fun dismissDataHealth() {
+        _dataHealth.value = null
+    }
+
+    /** 修复可安全处理的引用 / 设置不一致；不删除打卡历史 */
+    fun repairData() {
+        if (_checkingData.value) return
+        _checkingData.value = true
+        viewModelScope.launch {
+            val result = runCatching { dataRepair.repair() }
+            _checkingData.value = false
+            result
+                .onSuccess { r ->
+                    _dataHealth.value = null
+                    val repairedSettings = repository.getSettings()
+                    _settings.value = repairedSettings
+                    withContext(Dispatchers.IO) {
+                        runCatching { reminderScheduler.rescheduleAll() }
+                        runCatching { dailySummaryScheduler.sync(repairedSettings) }
+                    }
+                    val settingsNote = when {
+                        r.settingsReset -> "、重建设置"
+                        r.settingsNormalized -> "、修正设置"
+                        else -> ""
+                    }
+                    _message.value =
+                        "修复完成：规则 ${r.deletedRules}、提醒 ${r.deletedReminders}、分组引用 ${r.clearedGroupRefs}、" +
+                            "空备注 ${r.deletedNotes}、筛选 ${r.cleanedFilters}$settingsNote" +
+                            if (r.orphanRecordsKept > 0) "；保留历史记录 ${r.orphanRecordsKept} 条" else ""
+                }
+                .onFailure { _message.value = "数据修复失败：${it.message ?: "未知错误"}" }
+        }
+    }
+
+    /** 用最近一份本机自动备份覆盖恢复；没有备份时提示 */
+    fun restoreLatestBackup() {
+        viewModelScope.launch {
+            val result = runCatching { dataRepair.restoreLatestBackup() }
+            result
+                .onSuccess { counts ->
+                    if (counts == null) {
+                        _message.value = "暂无可恢复的本机备份"
+                        return@onSuccess
+                    }
+                    _dataHealth.value = null
+                    val restoredSettings = repository.getSettings()
+                    _settings.value = restoredSettings
+                    withContext(Dispatchers.IO) {
+                        runCatching { reminderScheduler.rescheduleAll() }
+                        runCatching { dailySummaryScheduler.sync(restoredSettings) }
+                    }
+                    refreshBackupInfo()
+                    _message.value =
+                        "已从最近备份恢复：选项 ${counts.items}、记录 ${counts.records}、备注 ${counts.dayNotes}、分组 ${counts.groups}"
+                }
+                .onFailure { _message.value = "恢复失败：${it.message ?: "备份数据不正确"}" }
+        }
+    }
+
+    /** 导出全部崩溃日志到 SAF 选定的文本文件 */
+    fun exportCrashLogsTo(uri: Uri, resolver: ContentResolver) {
+        viewModelScope.launch {
+            val result = runCatching {
+                val text = withContext(Dispatchers.IO) { crashLogs.exportText() }
+                if (text.isBlank()) return@runCatching 0
+                withContext(Dispatchers.IO) {
+                    val out = resolver.openOutputStream(uri) ?: error("无法写入所选文件")
+                    out.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                }
+                crashLogs.list().size
+            }
+            result
+                .onSuccess { count ->
+                    _message.value = if (count == 0) "暂无崩溃日志" else "崩溃日志导出完成（$count 份）"
+                }
+                .onFailure { _message.value = "崩溃日志导出失败：${it.message ?: "未知错误"}" }
+        }
+    }
+
+    fun clearCrashLogs() {
+        viewModelScope.launch {
+            val deleted = withContext(Dispatchers.IO) { crashLogs.clear() }
+            refreshCrashInfo()
+            _message.value = "已清除 $deleted 份崩溃日志"
         }
     }
 

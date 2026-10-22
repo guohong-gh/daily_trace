@@ -5,6 +5,8 @@ import com.gh.daily_trace.backup.AutoBackup
 import com.gh.daily_trace.backup.BackupManager
 import com.gh.daily_trace.data.DailyTraceDatabase
 import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.diagnostics.CrashLogManager
+import com.gh.daily_trace.diagnostics.DataRepairManager
 import com.gh.daily_trace.reminder.DailySummaryScheduler
 import com.gh.daily_trace.reminder.ReminderScheduler
 
@@ -29,4 +31,6 @@ class Container(context: Context) {
 
     val backupManager = BackupManager(database)
     val autoBackup = AutoBackup(appContext, backupManager, repository)
+    val dataRepair = DataRepairManager(database, backupManager, autoBackup)
+    val crashLogs = CrashLogManager(appContext)
 }
