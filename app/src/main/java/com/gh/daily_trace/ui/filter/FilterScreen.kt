@@ -2,7 +2,10 @@
 
 package com.gh.daily_trace.ui.filter
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -40,7 +44,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -52,6 +58,7 @@ import com.gh.daily_trace.data.model.FilterView
 import com.gh.daily_trace.data.model.Group
 import com.gh.daily_trace.di.Container
 import com.gh.daily_trace.ui.common.EmptyState
+import com.gh.daily_trace.ui.common.ItemBadge
 
 @Composable
 fun FilterRoute(container: Container, onBack: () -> Unit, onApply: (Long) -> Unit) {
@@ -252,6 +259,15 @@ private fun FilterEditor(
                 Column {
                     items.forEach { item ->
                         CheckRow(
+                            // C27：选项行 = 图标徽章（选项色浅底 + emoji）+ 名称 + 复选框
+                            leading = {
+                                ItemBadge(
+                                    icon = item.icon,
+                                    color = item.color,
+                                    size = 28.dp,
+                                    iconSize = 14.sp,
+                                )
+                            },
                             label = item.name,
                             checked = item.id in itemIds,
                             onCheckedChange = { checked ->
@@ -291,6 +307,14 @@ private fun FilterEditor(
                 Column {
                     groups.forEach { group ->
                         CheckRow(
+                            // C27：分组行 = 分组色圆点 + 名称 + 复选框
+                            leading = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .background(Color(group.color), CircleShape),
+                                )
+                            },
                             label = group.name,
                             checked = group.id in groupIds,
                             onCheckedChange = { checked ->
@@ -383,14 +407,30 @@ private fun FilterEditor(
     }
 }
 
+/**
+ * 筛选编辑器的选中行（C27）：前导视觉（选项=图标徽章 / 分组=色点）+ 名称 + 行尾复选框；
+ * 复选框整行可点（点击行 = 切换选中），与系统设置风格一致。
+ */
 @Composable
-private fun CheckRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun CheckRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    leading: (@Composable () -> Unit)? = null,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable { onCheckedChange(!checked) },
     ) {
-        Checkbox(checked = checked, onCheckedChange = onCheckedChange)
-        Text(label, style = MaterialTheme.typography.bodyLarge)
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(10.dp))
+        }
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Checkbox(checked = checked, onCheckedChange = null)
     }
 }
 
