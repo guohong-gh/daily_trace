@@ -17,6 +17,8 @@ data class FrequencyRule(
     val daysOfWeek: List<Int> = emptyList(),
     /** type=TIMES_PER_MONTH 时生效 */
     val timesPerMonth: Int? = null,
+    /** type=TIMES_PER_WEEK 时生效 */
+    val timesPerWeek: Int? = null,
     /** type=CUSTOM 时生效：每隔 N 天记一次（1..90） */
     val intervalDays: Int? = null,
     /** type=CUSTOM 时的锚点日（epochDay）：自该日起按 intervalDays 计期望日 */

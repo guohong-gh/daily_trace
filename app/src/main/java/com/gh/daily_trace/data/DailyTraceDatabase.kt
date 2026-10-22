@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
         FrequencyRule::class,
         AppSettings::class
     ],
-    version = 5,
+    version = 6,
     // 导出 schema 至 app/schemas，后续升级编写显式 Migration，不做隐式破坏性迁移
     exportSchema = true
 )
@@ -117,6 +117,16 @@ abstract class DailyTraceDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v5 → v6（M12-1 B16「每周几次」）：
+         * frequency_rules 增加 timesPerWeek（type=TIMES_PER_WEEK 的周配额；旧数据为 null）。
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE frequency_rules ADD COLUMN timesPerWeek INTEGER")
+            }
+        }
+
         private fun build(context: Context): DailyTraceDatabase {
             // onCreate 回调在数据库首次打开（build 返回之后）才触发，届时 db 已初始化
             lateinit var db: DailyTraceDatabase
@@ -125,7 +135,7 @@ abstract class DailyTraceDatabase : RoomDatabase() {
                 DailyTraceDatabase::class.java,
                 "daily_trace.db"
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .addCallback(object : Callback() {
                     override fun onCreate(supportDb: SupportSQLiteDatabase) {
                         super.onCreate(supportDb)

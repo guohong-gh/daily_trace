@@ -48,12 +48,15 @@ data class PeriodStat(
     val rate: Double get() = if (expectedDays == 0) 0.0 else doneDays.toDouble() / expectedDays
 }
 
-/** 参与聚合统计的选项与规则（TIMES_PER_MONTH 无日级期望，被期望日模型自然排除） */
+/** 配额语义的频率类型：无日级期望，不计入完成率分母（D16 / B16 统计口径） */
+val QUOTA_TYPES = setOf(FrequencyType.TIMES_PER_MONTH, FrequencyType.TIMES_PER_WEEK)
+
+/** 参与聚合统计的选项与规则（配额类型无日级期望，被期望日模型自然排除） */
 data class ItemRule(val itemId: Long, val rule: FrequencyRule?)
 
 /**
  * 分组统计（M10-2）：组内按期望日加权，不取各选项百分比的平均值。
- * TIMES_PER_MONTH 不计入分母，仅以 [quotaItemCount] 标注；未分组 / 孤儿 groupId 的 color 为 null。
+ * 配额类型（TIMES_PER_MONTH / TIMES_PER_WEEK）不计入分母，仅以 [quotaItemCount] 标注；未分组 / 孤儿 groupId 的 color 为 null。
  */
 data class GroupRate(
     val groupId: Long?,
@@ -66,7 +69,8 @@ data class GroupRate(
 
 /**
  * 统计口径（D16/D24，见 docs/status-and-plan.md）：
- * - 期望日：DAILY / 无规则 = 每天；DAYS_OF_WEEK = 所选周几；TIMES_PER_MONTH = 无日级期望（用月度配额）；
+ * - 期望日：DAILY / 无规则 = 每天；DAYS_OF_WEEK = 所选周几；
+ *   TIMES_PER_MONTH / TIMES_PER_WEEK = 无日级期望（用月度 / 周度配额）；
  *   CUSTOM = 每隔 N 天（自锚点日起算，锚点之前不计期望）。
  * - 跳过：记录 status=SKIPPED，或 rule.allowSkip 且当天在 skipDates 中；跳过日不计入期望日，也不中断连续。
  * - 记录按 itemId 过滤（传入全局按日分组的记录也能正确处理各选项互不污染）。
@@ -82,6 +86,7 @@ object StatsCalculator {
             null, FrequencyType.DAILY -> true
             FrequencyType.DAYS_OF_WEEK -> dow in rule.daysOfWeek
             FrequencyType.TIMES_PER_MONTH -> false
+            FrequencyType.TIMES_PER_WEEK -> false
             FrequencyType.CUSTOM -> {
                 // 每隔 N 天（自锚点日起算）；缺参数（旧数据 / 异常导入）时退化为每天
                 val n = rule.intervalDays
@@ -174,7 +179,7 @@ object StatsCalculator {
     /**
      * 分组统计（D43）：仅在用选项（启用、未归档、未删除）；按分组 sort / id 顺序输出，
      * 有在用选项的分组才出现，未分组最后。分组完成率 = Σ 组内日级期望完成 / Σ 期望日；
-     * TIMES_PER_MONTH 无日级期望，不计分母，只统计数量。
+     * 配额类型（TIMES_PER_MONTH / TIMES_PER_WEEK）无日级期望，不计分母，只统计数量。
      */
     fun groupRates(
         groups: List<Group>,
@@ -222,7 +227,7 @@ object StatsCalculator {
             var quota = 0
             bucket.forEach { item ->
                 val rule = rulesByItem[item.id]
-                if (rule?.type == FrequencyType.TIMES_PER_MONTH) {
+                if (rule?.type in QUOTA_TYPES) {
                     quota++
                 } else {
                     val result = rate(item.id, rule, index, startDay, endDay, partialCountsAsDone)
@@ -312,7 +317,35 @@ object StatsCalculator {
         return StreakResult(current, maxOf(best, current))
     }
 
-    /** 月度配额进度：当月有完成（DONE/PARTIAL）记录的天数，供 TIMES_PER_MONTH 展示「本月 x/N 次」 */
+    /**
+     * 月度配额进度（TIMES_PER_MONTH）：当月有完成（DONE/PARTIAL）记录的天数，展示「本月 x/N 次」。
+     * 周度配额进度（TIMES_PER_WEEK）：本自然周（按 weekStart 对齐）同样口径，展示「本周 x/N 次」。
+     * 配口径统一：有完成记录的天数 = 1 次；跳过 / PLANNED 不计。
+     */
+    fun weeklyQuotaProgress(
+        itemId: Long,
+        index: DailyRecordIndex,
+        today: Long,
+        weekStart: Int = 1,
+    ): Int {
+        val ws = weekStart.coerceIn(1, 7)
+        val dow = LocalDate.ofEpochDay(today).dayOfWeek.value
+        val start = today - ((dow - ws + 7) % 7)
+        return quotaProgress(itemId, index, start, start + 6)
+    }
+
+    fun weeklyQuotaProgress(
+        itemId: Long,
+        recordsByDay: Map<Long, List<CheckRecord>>,
+        today: Long,
+        weekStart: Int = 1,
+    ): Int = weeklyQuotaProgress(
+        itemId = itemId,
+        index = DailyRecordIndex.fromByDay(recordsByDay),
+        today = today,
+        weekStart = weekStart,
+    )
+
     fun monthlyQuotaProgress(
         itemId: Long,
         recordsByDay: Map<Long, List<CheckRecord>>,
@@ -331,6 +364,11 @@ object StatsCalculator {
         val ym = YearMonth.from(LocalDate.ofEpochDay(today))
         val start = ym.atDay(1).toEpochDay()
         val end = ym.atEndOfMonth().toEpochDay()
+        return quotaProgress(itemId, index, start, end)
+    }
+
+    /** 配额通用口径：[start]..[end] 内有完成（DONE/PARTIAL）记录的天数 */
+    private fun quotaProgress(itemId: Long, index: DailyRecordIndex, start: Long, end: Long): Int {
         var days = 0
         var d = start
         while (d <= end) {

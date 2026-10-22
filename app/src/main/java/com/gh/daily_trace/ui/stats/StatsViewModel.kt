@@ -17,6 +17,7 @@ import com.gh.daily_trace.domain.stats.ItemTotals
 import com.gh.daily_trace.domain.stats.PeriodStat
 import com.gh.daily_trace.domain.stats.RateResult
 import com.gh.daily_trace.domain.stats.StatsCalculator
+import com.gh.daily_trace.domain.stats.QUOTA_TYPES
 import com.gh.daily_trace.domain.stats.StreakResult
 import com.gh.daily_trace.domain.time.DayClock
 import kotlinx.coroutines.Dispatchers
@@ -46,8 +47,9 @@ data class ItemStat(
     val streak: StreakResult,
     /** 全时段聚合总量（D28：次数只算 DONE、量值含 PARTIAL） */
     val totals: ItemTotals = ItemTotals(),
-    /** TIMES_PER_MONTH：本月已完成天数与目标次数 */
+    /** 配额类型（TIMES_PER_MONTH=本月 / TIMES_PER_WEEK=本周）：已完成天数与目标次数 */
     val isQuota: Boolean = false,
+    val quotaPeriod: String = "",
     val quotaDone: Int = 0,
     val quotaTarget: Int = 0,
 )
@@ -144,7 +146,7 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
 
         val itemStats = items.map { item ->
             val rule = rulesByItem[item.id]
-            val isQuota = rule?.type == FrequencyType.TIMES_PER_MONTH
+            val isQuota = rule?.type in QUOTA_TYPES
             ItemStat(
                 item = item,
                 rate = StatsCalculator.rate(item.id, rule, index, start, end, partial),
@@ -158,8 +160,22 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
                 ),
                 totals = totalsByItem[item.id] ?: ItemTotals(),
                 isQuota = isQuota,
-                quotaDone = if (isQuota) StatsCalculator.monthlyQuotaProgress(item.id, index, today) else 0,
-                quotaTarget = rule?.timesPerMonth ?: 0,
+                quotaPeriod = when (rule?.type) {
+                    FrequencyType.TIMES_PER_MONTH -> "本月"
+                    FrequencyType.TIMES_PER_WEEK -> "本周"
+                    else -> ""
+                },
+                quotaDone = when {
+                    rule?.type == FrequencyType.TIMES_PER_WEEK ->
+                        StatsCalculator.weeklyQuotaProgress(item.id, index, today, settings.weekStart)
+                    isQuota -> StatsCalculator.monthlyQuotaProgress(item.id, index, today)
+                    else -> 0
+                },
+                quotaTarget = when (rule?.type) {
+                    FrequencyType.TIMES_PER_MONTH -> rule.timesPerMonth
+                    FrequencyType.TIMES_PER_WEEK -> rule.timesPerWeek
+                    else -> null
+                } ?: 0,
             )
         }
 

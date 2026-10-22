@@ -134,6 +134,21 @@ class GroupStatsTest {
     }
 
     @Test
+    fun `周配额项同样不计入分母并单独标注`() {
+        val stats = groupRates(
+            groups = listOf(group(1, "学习")),
+            items = listOf(item(1, groupId = 1)),
+            records = listOf(rec(1, start)),
+            rules = mapOf(1L to FrequencyRule(itemId = 1, type = FrequencyType.TIMES_PER_WEEK, timesPerWeek = 3)),
+        ).single()
+
+        assertEquals(0, stats.rate.doneDays)
+        assertEquals(0, stats.rate.expectedDays)
+        assertNull(stats.rate.rate)
+        assertEquals(1, stats.quotaItemCount)
+    }
+
+    @Test
     fun `分组按管理顺序输出未分组与孤儿分组置末`() {
         val stats = groupRates(
             groups = listOf(

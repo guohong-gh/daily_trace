@@ -35,9 +35,9 @@ enum class DayFilter {
     ALL, RECORDED, UNRECORDED
 }
 
-/** 频率类型 */
+/** 频率类型。TIMES_PER_MONTH / TIMES_PER_WEEK 为配额语义（无日级期望，不进完成率分母） */
 enum class FrequencyType {
-    DAILY, DAYS_OF_WEEK, TIMES_PER_MONTH, CUSTOM
+    DAILY, DAYS_OF_WEEK, TIMES_PER_MONTH, TIMES_PER_WEEK, CUSTOM
 }
 
 /** 提醒重复方式（WEEKLY 按频率规则的 daysOfWeek 生效，Phase 3 调度时使用） */

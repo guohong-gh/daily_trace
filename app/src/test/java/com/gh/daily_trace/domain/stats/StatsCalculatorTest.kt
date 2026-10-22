@@ -176,7 +176,7 @@ class StatsCalculatorTest {
         assertEquals(1, streaks.current)
     }
 
-    // ---------- 月度配额 ----------
+    // ---------- 月度 / 周度配额（B16） ----------
 
     @Test
     fun `月度配额统计当月有完成记录的天数`() {
@@ -186,6 +186,34 @@ class StatsCalculatorTest {
             rec(20740, RecordStatus.SKIPPED), // 跳过不计
         )
         assertEquals(3, StatsCalculator.monthlyQuotaProgress(1, records, today))
+    }
+
+    @Test
+    fun `TIMES_PER_WEEK无日级期望`() {
+        val quota = FrequencyRule(itemId = 1, type = FrequencyType.TIMES_PER_WEEK, timesPerWeek = 3)
+        assertFalse(StatsCalculator.isExpectedDay(today, quota))
+        // 即便当天有完成记录，也不是期望日（不计入完成率分母）
+        val outcome = StatsCalculator.outcomeOf(1, today, quota, listOf(rec(today)), partialCountsAsDone = true)
+        assertEquals(DayOutcome.NOT_EXPECTED, outcome)
+    }
+
+    @Test
+    fun `周配额统计本周有完成记录的天数`() {
+        // 周一起始（默认）：20738..20744 含今天 20743（周六）
+        val records = byDay(
+            rec(20738), rec(20739, RecordStatus.PARTIAL), rec(today),
+            rec(20737), // 上一周，不计
+            rec(20742, RecordStatus.SKIPPED), // 跳过不计
+        )
+        assertEquals(3, StatsCalculator.weeklyQuotaProgress(1, records, today))
+    }
+
+    @Test
+    fun `周配额按weekStart对齐`() {
+        // 今天 20743 周六：周日起始（weekStart=7）算 20737..20743，周一起始算 20738..20744
+        val records = byDay(rec(20737), rec(20738))
+        assertEquals(2, StatsCalculator.weeklyQuotaProgress(1, records, today, weekStart = 7))
+        assertEquals(1, StatsCalculator.weeklyQuotaProgress(1, records, today, weekStart = 1))
     }
 
     // ---------- 聚合总量（D28） ----------

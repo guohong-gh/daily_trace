@@ -41,6 +41,7 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 | M9 系统集成（4 项） | 搜索按日期范围、提醒「暂停」、每日汇总提醒、桌面小组件 | ✅ 完成（207 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十九~二十二节） |
 | M10 数据与质量（7 项） | CSV 导出、按分组统计、色盲友好、日期格式/语言、大字号回归、压力测试、崩溃日志与数据修复 | ✅ 完成（6 / 7 完成；色盲友好按产品取舍不做；240 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第二十三~二十八节） |
 | M11 品牌与平板（2 项） | 应用名改回「日迹」、平板 / 响应式布局 | ✅ 完成（242 用例全绿；lint 0 错误；手机 / 平板走查通过；批次详情见第二十九节） |
+| M12 高频与频率补全（4 项） | B16「每周 N 次」+ DB v6、B19 近期常用、B20 今日页 FAB、C28 全选（C27 配色顺延） | 🔄 进行中（见第三十节；M12-1 完成：246 用例全绿，lint 0 错误） |
 
 M1 验收标准：新建 4 类型选项 → 各自打卡 → 杀进程重启数据完整；MultiRecordRule 三种规则行为有单测。
 自动化部分已达成（40 用例全绿 + APK 构建成功）；模拟器（Medium_Phone_API_37.0）手动验收通过（见第八节）。
@@ -134,6 +135,7 @@ M6 发布（交付细节）：
 | D46 | 2026-10-21 | 大数据量统计 = `DailyRecordIndex` 一次遍历建立「日期」与「日期+选项」索引及每项最早日期；全时段总量用 `totalsByItem` 单遍历；统计聚合在 `Dispatchers.Default` 执行；统计页与长按摘要改用 `LazyColumn` 只组合可见行（摘要 >20 条时启用，普通数据保持原弹窗布局） | 500 选项 / 5 万记录下避免 O(选项数 × 记录数) 扫描与一次性组合 500 张卡片；不改变统计口径、schema、CSV / 备份格式（M10-6） |
 | D47 | 2026-10-22 | 崩溃日志 = `Application.onCreate` 最早安装全局未捕获异常处理器，崩溃前写 `files/crash_logs/crash_*.log`（版本、设备、Android / SDK、线程、完整堆栈），最多 10 份，随后交回系统默认处理器；设置页显示份数 / 最近时间，可 SAF 导出 UTF-8 文本或清除；不采集用户数据、不联网、无新增权限。数据修复 = 设置页主动「检查数据 / 修复」：只清理孤立频率规则 / 提醒、无效分组引用（置空）、空日期备注、筛选视图失效 id，并修正越界设置；用 `PRAGMA quick_check` 报告完整性；选项彻底删除后的孤儿记录保留只读、不删除；另提供「从最近本机备份恢复」覆盖恢复 | 只修可由数据自身推导的不一致，不自动删除打卡历史；大面积异常走备份恢复；无 schema、无新增依赖 / 权限（M10-7） |
 | D48 | 2026-10-22 | 响应式布局 = 按 Material 3 官方 600 / 840dp 断点划分 compact / medium / expanded，用 `BoxWithConstraints` 计算，不引入 window-size-class 依赖；medium / expanded 且可用高度 ≥480dp 显示左侧导航栏（日迹 + 今日 / 日历 / 统计 / 管理 / 设置），内容最大宽度 1000dp 居中；内容宽度 ≥640dp 时今日 / 统计的选项卡片双列，进度、筛选条、分组标题、趋势等整行跨列；紧凑宽度与矮横屏保持原顶栏导航 | 平板获得稳定导航与双列信息密度，手机布局不变；高度门槛避免横屏手机导航栏被裁切；不新增依赖、不改数据 / CSV / 备份口径（M11） |
+| D49 | 2026-10-22 | B16「每周 N 次」按配额语义：不出日级期望、不进完成率分母、统计页展示「本周 x/N 次」（有 DONE / PARTIAL 记录的天数 = 1 次，按 weekStart 对齐）；B19 用自动方案（今日页按最近 30 天使用次数 top 3，≥1 即显示实际数量，总项数 ≥8 才显示）；B20 FAB 只放今日页；C28 先做、C27 顺延 | 与 TIMES_PER_MONTH 配额口径一致便于理解与实现；不改动完成率语义与 CSV / 备份格式；DB v6 为向后兼容增列迁移（M12） |
 
 ## 五、假设（因需求文档缺失而采用）
 
@@ -618,3 +620,24 @@ resume 撤恢复闹钟并重排全部启用提醒；ReminderReceiver 触发时�
 - `aapt dump badging` 显示 `application-label:'日迹'`；系统 App info 页面显示「日迹」，包名仍为 `com.gh.daily_trace`。
 - 截图 `docs/screenshots/m11-01-brand.png`（应用名）、`docs/screenshots/m11-02-tablet.png`（2×2：平板今日 / 统计 / 日历 / 设置）。
 - 走查后恢复 `wm size` / `density` / `font_scale` 默认；演示数据 6 个在册选项 / 19 条记录未变，首页 0/6；未改 schema、备份与 CSV 口径。
+
+## 三十、M12 高频与频率补全批次（2026-10-22 起）
+
+范围：任务书未排期项 B16「每周 N 次」、B19 常用选项置顶、B20 FAB 快速添加、C28 筛选全选；C27 筛选行配色顺延至后续批次。用户确认（2026-10-22）：B16 按配额语义处理；B19 用方案 A（自动：按最近使用次数取 top 3，不足 3 个显示实际数量 ≥1 即显示，总项数 ≥8 才显示）；B20 FAB 只放今日页；先做 C28。
+
+### M12-1：B16「每周 N 次」（2026-10-22 完成）
+
+交付内容：
+1. `FrequencyType` 新增 `TIMES_PER_WEEK`（枚举位置在 TIMES_PER_MONTH 与 CUSTOM 之间）；`FrequencyRule` 新增 `timesPerWeek: Int?` 列。
+2. Room DB v5 → v6：`MIGRATION_5_6` 手写 `ALTER TABLE frequency_rules ADD COLUMN timesPerWeek INTEGER`（非破坏性，旧数据为 null），不开 destructive fallback；`app/schemas/…/6.json` 已导出。
+3. 备份编解码：`encodeRule` / `decodeRule` 增加 `timesPerWeek` 字段（旧备份缺字段回退 null，向后兼容）。
+4. 统计口径（D49）：`isExpectedDay` 对 TIMES_PER_WEEK 返回 false（无日级期望）；分组统计配额判定改为 `rule?.type in QUOTA_TYPES`（月度 / 周度都是配额项，不计完成率分母、单独标注）；新增 `weeklyQuotaProgress()`（本自然周按 `weekStart` 对齐，有 DONE/PARTIAL 记录的天数 = 1 次），与 `monthlyQuotaProgress()` 共用 `quotaProgress()` 内部口径；统计页配额项显示「x/N 次」+「按本周 / 本月配额统计，不计算连续」。
+5. 编辑页（M7-1 UI 模式镜像）：频率类型 chips 增加「每周几次」，选中后输入「每周目标次数」（1–7 校验，默认 3；isError + supportingText 与月度配额一致）；`ItemEditViewModel` 补 `freqTimesPerWeek` 状态、校验（“每周次数需为 1-7 的整数”）与保存分支（非当周类型保留旧值）。
+6. 今日页 / 日历 / 尾注不受影响：配额类型当天无期望，今日页计数仍按全选项统计；CSV / 备份格式口径不变（备份 JSON 为增列）、不新增依赖或权限。
+
+验证：
+- `testDebugUnitTest` 246/246 全绿（新增 4：TIMES_PER_WEEK 无日级期望、周配额统计本周有完成记录的天数、周配额按 weekStart 对齐、周配额项分组不计分母并单独标注）。
+- `lintDebug` 0 errors / 17 warnings（与基线同集合）；`assembleRelease`（R8）成功，release 包 2,293,078 bytes；classes.dex 含 `TIMES_PER_WEEK` 确认为新构建。
+- 模拟器（Medium_Phone_API_37.0，1080×2400 手势模式）release 覆盖安装：旧 DB v5 演示数据直接启动 → v6 迁移无崩溃，6 选项 / 19 记录完整；编辑页频率 chips 出现「每周几次」，选中后输入框默认 3 且提示正确；保存后统计页 Bool1 显示「2/3 次 · 按本周配额统计，不计算连续」，分组统计标注「含 1 个配额项」。
+- 截图 `docs/screenshots/m12-01-home.png`（迁移后首页数据完整）、`m12-02-edit-chip.png`（新增 chip）、`m12-03-week-quota-editor.png`（周配额编辑态）、`m12-04-week-quota-stats.png`（统计页周配额展示）。
+- 走查后 Bool1 的频率规则保存为「每周 3 次」（演示数据变化：6 选项 / 19 条记录不变，其中 1 个选项由 DAILY 改为 TIMES_PER_WEEK）；CSV / 备份 / schema 版本迁移均已在真实设备上生效。

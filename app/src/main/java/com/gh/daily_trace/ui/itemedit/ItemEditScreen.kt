@@ -267,6 +267,11 @@ fun ItemEditScreen(viewModel: ItemEditViewModel, onBack: () -> Unit) {
                                         } else {
                                             s.freqTimesPerMonth
                                         },
+                                        freqTimesPerWeek = if (t == FrequencyType.TIMES_PER_WEEK && s.freqTimesPerWeek.isBlank()) {
+                                            "3"
+                                        } else {
+                                            s.freqTimesPerWeek
+                                        },
                                         freqIntervalDays = if (t == FrequencyType.CUSTOM && s.freqIntervalDays.isBlank()) {
                                             "2"
                                         } else {
@@ -329,6 +334,24 @@ fun ItemEditScreen(viewModel: ItemEditViewModel, onBack: () -> Unit) {
                             isError = invalid,
                             supportingText = {
                                 Text(if (invalid) "请输入 1-31 的整数" else "每月完成 N 天即达标，不按日计完成率")
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    FrequencyType.TIMES_PER_WEEK -> {
+                        val invalid = state.freqTimesPerWeek.trim().toIntOrNull() !in 1..7
+                        OutlinedTextField(
+                            value = state.freqTimesPerWeek,
+                            onValueChange = { v ->
+                                viewModel.update { it.copy(freqTimesPerWeek = v.filter { c -> c.isDigit() }.take(1)) }
+                            },
+                            label = { Text("每周目标次数") },
+                            isError = invalid,
+                            supportingText = {
+                                Text(if (invalid) "请输入 1-7 的整数" else "每周完成 N 天即达标，不按日计完成率")
                             },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -719,5 +742,6 @@ private fun freqTypeLabel(type: FrequencyType): String = when (type) {
     FrequencyType.DAILY -> "每天"
     FrequencyType.DAYS_OF_WEEK -> "每周几"
     FrequencyType.TIMES_PER_MONTH -> "每月几次"
+    FrequencyType.TIMES_PER_WEEK -> "每周几次"
     FrequencyType.CUSTOM -> "自定义"
 }

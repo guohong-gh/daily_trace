@@ -146,6 +146,7 @@ object BackupCodec {
         put("type", rule.type.name)
         put("daysOfWeek", JSONArray(rule.daysOfWeek))
         put("timesPerMonth", rule.timesPerMonth ?: JSONObject.NULL)
+        put("timesPerWeek", rule.timesPerWeek ?: JSONObject.NULL)
         put("intervalDays", rule.intervalDays ?: JSONObject.NULL)
         put("anchorEpochDay", rule.anchorEpochDay ?: JSONObject.NULL)
         put("targetValue", rule.targetValue ?: JSONObject.NULL)
@@ -293,6 +294,7 @@ object BackupCodec {
         type = enumOr(o.str("type"), FrequencyType.DAILY),
         daysOfWeek = o.intList("daysOfWeek"),
         timesPerMonth = o.nullableInt("timesPerMonth"),
+        timesPerWeek = o.nullableInt("timesPerWeek"),
         intervalDays = o.nullableInt("intervalDays"),
         anchorEpochDay = o.nullableLong("anchorEpochDay"),
         targetValue = o.nullableDouble("targetValue"),

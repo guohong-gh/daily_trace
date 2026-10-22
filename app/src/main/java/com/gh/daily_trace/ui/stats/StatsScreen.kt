@@ -321,7 +321,7 @@ private fun ItemStatCard(stat: ItemStat) {
                 )
                 if (stat.isQuota) {
                     Text(
-                        "${stat.quotaDone}/${stat.quotaTarget} 次",
+                        if (stat.quotaTarget > 0) "${stat.quotaDone}/${stat.quotaTarget} 次" else "—",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -346,7 +346,7 @@ private fun ItemStatCard(stat: ItemStat) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (stat.isQuota) {
-                        "按月度配额统计，不计算连续"
+                        "按${stat.quotaPeriod}配额统计，不计算连续"
                     } else {
                         "完成 ${stat.rate.doneDays}/${stat.rate.expectedDays} 天 · 最佳 ${stat.streak.best} 天"
                     },

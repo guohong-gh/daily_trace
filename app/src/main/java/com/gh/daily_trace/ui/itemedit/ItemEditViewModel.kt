@@ -35,7 +35,8 @@ data class ItemEditState(
     val freqType: FrequencyType = FrequencyType.DAILY,
     /** ISO 1=周一..7=周日，DAYS_OF_WEEK 时生效 */
     val freqDays: List<Int> = emptyList(),
-    val freqTimesPerMonth: String = "",
+    val freqTimesPerMonth: String = "", /** 每月 N 次（TIMES_PER_MONTH，1..31） */
+    val freqTimesPerWeek: String = "", /** 每周 N 次（TIMES_PER_WEEK，1..7） */
     val freqIntervalDays: String = "",
     val allowSkip: Boolean = true,
     val enabled: Boolean = true,
@@ -103,6 +104,7 @@ class ItemEditViewModel(
                     freqType = rule?.type ?: FrequencyType.DAILY,
                     freqDays = rule?.daysOfWeek.orEmpty(),
                     freqTimesPerMonth = rule?.timesPerMonth?.toString() ?: "",
+                    freqTimesPerWeek = rule?.timesPerWeek?.toString() ?: "",
                     freqIntervalDays = rule?.intervalDays?.toString() ?: "",
                     allowSkip = rule?.allowSkip ?: true,
                     reminderEnabled = reminder?.enabled == true,
@@ -145,6 +147,10 @@ class ItemEditViewModel(
             }
             FrequencyType.TIMES_PER_MONTH -> if (s.freqTimesPerMonth.trim().toIntOrNull() !in 1..31) {
                 update { it.copy(error = "每月次数需为 1-31 的整数") }
+                return
+            }
+            FrequencyType.TIMES_PER_WEEK -> if (s.freqTimesPerWeek.trim().toIntOrNull() !in 1..7) {
+                update { it.copy(error = "每周次数需为 1-7 的整数") }
                 return
             }
             FrequencyType.CUSTOM -> if (s.freqIntervalDays.trim().toIntOrNull() !in 1..90) {
@@ -248,6 +254,11 @@ class ItemEditViewModel(
                     s.freqTimesPerMonth.trim().toIntOrNull()
                 } else {
                     existing?.timesPerMonth
+                },
+                timesPerWeek = if (s.freqType == FrequencyType.TIMES_PER_WEEK) {
+                    s.freqTimesPerWeek.trim().toIntOrNull()
+                } else {
+                    existing?.timesPerWeek
                 },
                 intervalDays = if (s.freqType == FrequencyType.CUSTOM) interval else existing?.intervalDays,
                 anchorEpochDay = anchor,
