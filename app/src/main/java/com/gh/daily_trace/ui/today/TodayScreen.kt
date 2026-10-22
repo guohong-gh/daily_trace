@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -38,6 +39,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -99,6 +101,7 @@ fun TodayRoute(
     onSearch: () -> Unit,
     onFilter: () -> Unit,
     onStats: () -> Unit,
+    onCreateItem: () -> Unit,
     appliedFilterId: Long,
     onClearFilter: () -> Unit,
 ) {
@@ -116,6 +119,7 @@ fun TodayRoute(
         onSearch = onSearch,
         onFilter = onFilter,
         onStats = onStats,
+        onCreateItem = onCreateItem,
         onClearFilter = onClearFilter,
     )
 }
@@ -130,6 +134,7 @@ fun TodayScreen(
     onSearch: () -> Unit,
     onFilter: () -> Unit,
     onStats: () -> Unit,
+    onCreateItem: () -> Unit,
     onClearFilter: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -262,6 +267,16 @@ fun TodayScreen(
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        // B20 快速添加：今日页唯一 FAB，直达「新建选项」（ itemId=0 ）；日期详情页不放
+        floatingActionButton = {
+            if (!selecting) {
+                ExtendedFloatingActionButton(
+                    text = { Text("新增") },
+                    icon = { Icon(Icons.Filled.Add, contentDescription = "新建选项") },
+                    onClick = onCreateItem,
+                )
+            }
+        },
     ) { padding ->
         if (state.sections.isEmpty()) {
             Box(

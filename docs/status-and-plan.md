@@ -41,7 +41,7 @@ UI (Compose Screens) ← ViewModel ← DailyTraceRepository ← Room DAOs ← da
 | M9 系统集成（4 项） | 搜索按日期范围、提醒「暂停」、每日汇总提醒、桌面小组件 | ✅ 完成（207 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第十九~二十二节） |
 | M10 数据与质量（7 项） | CSV 导出、按分组统计、色盲友好、日期格式/语言、大字号回归、压力测试、崩溃日志与数据修复 | ✅ 完成（6 / 7 完成；色盲友好按产品取舍不做；240 用例全绿；lint 0 错误；模拟器走查通过；批次详情见第二十三~二十八节） |
 | M11 品牌与平板（2 项） | 应用名改回「日迹」、平板 / 响应式布局 | ✅ 完成（242 用例全绿；lint 0 错误；手机 / 平板走查通过；批次详情见第二十九节） |
-| M12 高频与频率补全（4 项） | B16「每周 N 次」+ DB v6、B19 近期常用、B20 今日页 FAB、C28 全选（C27 配色顺延） | 🔄 进行中（见第三十节；M12-1 完成：246 用例全绿，lint 0 错误） |
+| M12 高频与频率补全（4 项） | B16「每周 N 次」+ DB v6、B19 近期常用、B20 今日页 FAB、C28 全选（C27 配色顺延） | ✅ 完成（250 用例全绿；lint 0 错误；每批走查通过；批次详情见第三十节） |
 
 M1 验收标准：新建 4 类型选项 → 各自打卡 → 杀进程重启数据完整；MultiRecordRule 三种规则行为有单测。
 自动化部分已达成（40 用例全绿 + APK 构建成功）；模拟器（Medium_Phone_API_37.0）手动验收通过（见第八节）。
@@ -625,15 +625,6 @@ resume 撤恢复闹钟并重排全部启用提醒；ReminderReceiver 触发时�
 
 范围：任务书未排期项 B16「每周 N 次」、B19 常用选项置顶、B20 FAB 快速添加、C28 筛选全选；C27 筛选行配色顺延至后续批次。用户确认（2026-10-22）：B16 按配额语义处理；B19 用方案 A（自动：按最近使用次数取 top 3，不足 3 个显示实际数量 ≥1 即显示，总项数 ≥8 才显示）；B20 FAB 只放今日页；先做 C28。
 
-### M12-2：B19「⭐ 近期常用」（2026-10-22 完成）
-
-交付内容：
-1. `CheckRecordDao` 新增 `observeRecentUsage(from, to, limit)`：给定 epochDay 闭区间按 itemId 统计记录条数（全部状态含 PLANNED，一条记录 = 一次使用），SQL `GROUP BY itemId ORDER BY useCount DESC LIMIT :limit`；`DailyTraceRepository` 透传。
-2. `TodayViewModel` 新增 `recentItems: StateFlow<List<CheckItem>>`：最近 30 天（含今天）窗口取 top 3；拦截条件 `总在册项数 ≥ 8` 才显示，可见时不足 3 个显示实际数量；与今日列表同口径受筛选视图约束（FilterMatcher，hasRecords 只看当天记录）；次数并列按 sort / id 稳定排序。纯计算抽为 `computeRecentFrequent()` 顶层函数（可直接单测）。
-3. `TodayScreen` 在进度卡之后插入全跨「⭐ 近期常用」区块：每行 图标 + 名称 + 主操作按钮，点击与该选项卡片主按钮行为一致（布尔=打卡 / 计数=+1 / 时长·数值=记一笔）；不提供长按多选与明细展开，避免与卡片主列表重复。
-4. 走查运行数据：新增 W8 / W9 / W10 三个选项补足门槛（6 → 9 项），走查期间由 chip 直写与手动打卡产生少量新记录。
-5. 无 schema 变更、无新增依赖或权限；CSV / 备份口径不变。
-
 ### M12-1：B16「每周 N 次」（2026-10-22 完成）
 
 交付内容：
@@ -651,9 +642,33 @@ resume 撤恢复闹钟并重排全部启用提醒；ReminderReceiver 触发时�
 - 截图 `docs/screenshots/m12-01-home.png`（迁移后首页数据完整）、`m12-02-edit-chip.png`（新增 chip）、`m12-03-week-quota-editor.png`（周配额编辑态）、`m12-04-week-quota-stats.png`（统计页周配额展示）。
 - 走查后 Bool1 的频率规则保存为「每周 3 次」（演示数据变化：6 选项 / 19 条记录不变，其中 1 个选项由 DAILY 改为 TIMES_PER_WEEK）；CSV / 备份 / schema 版本迁移均已在真实设备上生效。
 
-### M12-2 验证（B19）
+### M12-2：B19「⭐ 近期常用」（2026-10-22 完成）
 
-- `testDebugUnitTest` 250/250 全绿（新增 4：DAO 30 天窗口计数排序与 limit 截断、纯计算次数排序 / 停用与不在册剔除、不足 3 个显示实际数量；上限门槛测试不依赖 stateIn 初值）。
-- `lintDebug` 0 errors（warning 与基线同集合）；`assembleRelease`（R8）成功，release 包 2,293,078 bytes（D8 内含「近期常用」字符串确认新构建）。
-- 模拟器（Medium_Phone_API_37.0）release 覆盖安装：9 个在册选项达门槛后区块出现，排序、快捷直写行为符合预期；6 个选项（<8）时不显示（_limits 测试覆盖）。
-- 截图 `docs/screenshots/m12-05-recent-frequent.png`（区块与 chip）、`m12-06-recent-frequent-done.png`（chip 打卡后被 1/9、Bool1 已完成）。
+交付内容：
+1. `CheckRecordDao` 新增 `observeRecentUsage(from, to, limit)`：给定 epochDay 闭区间按 itemId 统计记录条数（全部状态含 PLANNED，一条记录 = 一次使用），SQL `GROUP BY itemId ORDER BY useCount DESC LIMIT :limit`；`DailyTraceRepository` 透传。
+2. `TodayViewModel` 新增 `recentItems: StateFlow<List<CheckItem>>`：最近 30 天（含今天）窗口取 top 3；拦截条件 `总在册项数 ≥ 8` 才显示，可见时不足 3 个显示实际数量；与今日列表同口径受筛选视图约束（FilterMatcher，hasRecords 只看当天记录）；次数并列按 sort / id 稳定排序。纯计算抽为 `computeRecentFrequent()` 顶层函数（可直接单测）。
+3. `TodayScreen` 在进度卡之后插入全跨「⭐ 近期常用」区块：每行 图标 + 名称 + 主操作按钮，点击与该选项卡片主按钮行为一致（布尔=打卡 / 计数=+1 / 时长·数值=记一笔）；不提供长按多选与明细展开，避免与卡片主列表重复。
+4. 走查运行数据：新增 W8 / W9 / W10 三个选项补足门槛（6 → 9 项），走查期间由 chip 直写与手动打卡产生少量新记录。
+5. 无 schema 变更、无新增依赖或权限；CSV / 备份口径不变。
+
+验证：
+- `testDebugUnitTest` 250/250 全绿（新增 4：DAO 30 天窗口计数排序与 limit 截断、纯计算次数排序 / 停用与不在册剔除、不足 3 个显示实际数量；门槛显隐以纯函数直测，不依赖 stateIn 初值）。
+- `lintDebug` 0 errors（warning 与基线同集合）；`assembleRelease`（R8）成功，release 包 2,293,078 bytes（classes.dex 内含「近期常用」字符串确认新构建）。
+- 模拟器（Medium_Phone_API_37.0）release 覆盖安装：9 个在册选项达门槛后区块出现，排序、快捷直写行为符合预期；6 个选项（<8）时不显示（纯计算用例覆盖）。
+- 截图 `docs/screenshots/m12-05-recent-frequent.png`（区块与 chip）、`m12-06-recent-frequent-done.png`（chip 打卡后 1/9、Bool1 已完成）。
+
+### M12-3：B20 今日页 FAB + C28 筛选全选（2026-10-22 完成）
+
+交付内容：
+1. B20：今日页 Scaffold 增加 `ExtendedFloatingActionButton`（「＋ 新增」），仅今日页（日期详情页等其余页面不加）；点击直达「新建选项」编辑页（`AppRoutes.itemEdit(0L)`），`TodayRoute` / `TodayScreen` 增加 `onCreateItem` 回调，由 `AppNavHost` 接通；多选模式下隐藏 FAB，避免遮挡批量操作条。
+2. C28：筛选视图编辑器「按选项（可多选）」「按分组（可多选）」标题行右侧各加一枚「全选 / 清空」切换按钮——未全选时一键全选该区全部条目，已全选时清空；区为空时禁用。行为纯 UI 状态切换，不改 `FilterView` 结构与筛选语义。
+3. 无 schema 变更、无 CSV / 备份口径变化、无新增依赖或权限。
+
+验证：
+- `testDebugUnitTest` 250/250 全绿（本批无新增纯逻辑，保持基线；`FilterMatcher` / 编辑器既有用例不受影响）。
+- `lintDebug` 0 errors / 17 warnings（与基线同集合）；`assembleRelease`（R8）成功，release 包 2,309,462 bytes（较上批 +16KB，与新 FAB / 全选 UI 一致）。
+- 模拟器（Medium_Phone_API_37.0）release 覆盖安装走查：
+  - 今日页右下角出现「＋ 新增」FAB，点击直达新建选项编辑页（名称为空校验提示正常）；返回后未产生数据。
+  - 筛选视图编辑器（RunRead 视图）：「全选」→ 9 项全部选中且按钮变「清空」；「清空」→ 全部取消且按钮变「回全选」；分组区按钮同构。退出未保存，原视图「选项 2 个（任一命中）」保持不变。
+- 截图 `docs/screenshots/m12-07-fab-new-item.png`（FAB 打开的新建编辑页）、`m12-08-filter-select-all.png`（全选态）。
+

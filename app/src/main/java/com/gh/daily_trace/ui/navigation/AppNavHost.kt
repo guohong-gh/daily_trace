@@ -167,6 +167,7 @@ private fun AppNavGraph(
                 onSearch = { navController.navigate(AppRoutes.SEARCH) },
                 onFilter = { navController.navigate(AppRoutes.FILTER) },
                 onStats = { navController.navigate(AppRoutes.STATS) },
+                onCreateItem = { navController.navigate(AppRoutes.itemEdit(0L)) },
                 appliedFilterId = appliedFilterId,
                 onClearFilter = { entry.savedStateHandle["appliedFilterId"] = -1L },
             )

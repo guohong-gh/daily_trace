@@ -229,12 +229,25 @@ private fun FilterEditor(
 
         if (mode == FilterMode.SELECTED) {
             item(key = "items") {
-                Text(
-                    "按选项（可多选）",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                val itemsSelected = items.isNotEmpty() && items.all { it.id in itemIds }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 8.dp),
-                )
+                ) {
+                    Text(
+                        "按选项（可多选）",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        // C28 全选辅助：全选与清空互为反选切换（未选任何项时显示「全选」）
+                        enabled = items.isNotEmpty(),
+                        onClick = {
+                            itemIds = if (itemsSelected) emptySet() else items.map { it.id }.toSet()
+                        },
+                    ) { Text(if (itemsSelected) "清空" else "全选") }
+                }
                 Spacer(Modifier.height(4.dp))
                 Column {
                     items.forEach { item ->
@@ -256,12 +269,24 @@ private fun FilterEditor(
                 }
             }
             item(key = "groups") {
-                Text(
-                    "按分组（可多选）",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                val groupsSelected = groups.isNotEmpty() && groups.all { it.id in groupIds }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 8.dp),
-                )
+                ) {
+                    Text(
+                        "按分组（可多选）",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        enabled = groups.isNotEmpty(),
+                        onClick = {
+                            groupIds = if (groupsSelected) emptySet() else groups.map { it.id }.toSet()
+                        },
+                    ) { Text(if (groupsSelected) "清空" else "全选") }
+                }
                 Spacer(Modifier.height(4.dp))
                 Column {
                     groups.forEach { group ->
