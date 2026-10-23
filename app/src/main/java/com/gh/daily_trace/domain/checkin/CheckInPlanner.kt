@@ -21,7 +21,7 @@ data class CheckInPlan(
 }
 
 /**
- * 打卡语义（与产品假设一致，见 docs/status-and-plan.md）：
+ * 打卡语义（与产品假设一致，见 docs/项目状态与计划.md）：
  * - toggleBoolean：布尔型快速打卡；今天已有「完成」记录 → 全部取消；否则新增一条。
  * - addValue：写入一条状态为「完成」的记录
  *   - BOOLEAN：新增（无完成记录）或更新最新一条「完成」记录的备注；

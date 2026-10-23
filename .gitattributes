@@ -1,0 +1,12 @@
+# 统一文本换行归一化；图片与构建产物按二进制处理
+* text=auto
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.apk binary
+*.aab binary
+*.jar binary
+*.keystore binary
+*.jks binary

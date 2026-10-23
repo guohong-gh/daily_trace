@@ -68,7 +68,7 @@ data class GroupRate(
 )
 
 /**
- * 统计口径（D16/D24，见 docs/status-and-plan.md）：
+ * 统计口径（D16/D24，见 docs/项目状态与计划.md）：
  * - 期望日：DAILY / 无规则 = 每天；DAYS_OF_WEEK = 所选周几；
  *   TIMES_PER_MONTH / TIMES_PER_WEEK = 无日级期望（用月度 / 周度配额）；
  *   CUSTOM = 每隔 N 天（自锚点日起算，锚点之前不计期望）。
