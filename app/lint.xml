@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!--
+      Kotlin/Compose 插件版本与 Kotlin 编译器、KSP、AGP 绑定，升级需单独评估（D55）；
+      在此之前忽略该提示，其余告警照常暴露。
+    -->
+    <issue id="NewerVersionAvailable" severity="ignore" />
+</lint>

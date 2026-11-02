@@ -1,6 +1,7 @@
 package com.gh.daily_trace.reminder
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.content.Context
 import android.content.Intent
@@ -29,6 +30,9 @@ object ReminderPermissions {
     }
 
     /** 跳转系统设置：允许精确闹钟 */
+    // ACTION_REQUEST_SCHEDULE_EXACT_ALARM 是 API 31 常量（内联进字节码）；
+    // 该入口只在 canScheduleExactAlarms()==false 时展示，而 31 以下恒为 true
+    @SuppressLint("InlinedApi")
     fun exactAlarmSettingsIntent(context: Context): Intent =
         Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
             .setData(Uri.fromParts("package", context.packageName, null))

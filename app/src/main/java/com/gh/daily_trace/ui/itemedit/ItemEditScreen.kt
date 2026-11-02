@@ -3,6 +3,7 @@
 package com.gh.daily_trace.ui.itemedit
 
 import android.Manifest
+import android.annotation.SuppressLint
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -88,6 +89,9 @@ fun ItemEditRoute(container: Container, itemId: Long, onBack: () -> Unit) {
     ItemEditScreen(viewModel = viewModel, onBack = onBack)
 }
 
+// POST_NOTIFICATIONS 是 API 33 常量（内联进字节码）；通知权限提示只在 33+ 可能出现
+// （notificationsGranted 在 33 以下恒为 true），低版本不会走到 launch 分支
+@SuppressLint("InlinedApi")
 @Composable
 fun ItemEditScreen(viewModel: ItemEditViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsState()

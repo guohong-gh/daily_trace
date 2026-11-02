@@ -74,13 +74,19 @@ if (-not (Test-Path -LiteralPath $lintReport)) {
     exit 1
 }
 $lintText = [System.IO.File]::ReadAllText($lintReport, [System.Text.Encoding]::UTF8)
-$lintMatch = [regex]::Match($lintText, "(?m)^(\d+) errors?, (\d+) warnings?\s*$")
-if (-not $lintMatch.Success) {
-    Write-Host "FAILED: could not parse lint summary" -ForegroundColor Red
-    exit 1
+if ($lintText -match "No issues found") {
+    # lint writes a single "No issues found." line when there are 0 errors / 0 warnings
+    $lintErrors = 0
+    $lintWarnings = 0
+} else {
+    $lintMatch = [regex]::Match($lintText, "(?m)^(\d+) errors?, (\d+) warnings?\s*$")
+    if (-not $lintMatch.Success) {
+        Write-Host "FAILED: could not parse lint summary" -ForegroundColor Red
+        exit 1
+    }
+    $lintErrors = [int]$lintMatch.Groups[1].Value
+    $lintWarnings = [int]$lintMatch.Groups[2].Value
 }
-$lintErrors = [int]$lintMatch.Groups[1].Value
-$lintWarnings = [int]$lintMatch.Groups[2].Value
 
 # --- APK metrics ----------------------------------------------------------
 $apk = Join-Path $root "app\build\outputs\apk\release\app-release.apk"
