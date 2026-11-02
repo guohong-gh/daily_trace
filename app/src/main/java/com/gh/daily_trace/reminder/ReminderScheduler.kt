@@ -27,6 +27,7 @@ class ReminderScheduler(
 ) {
     private val alarmManager: AlarmManager =
         context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    private val snoozeStore = SnoozeStore(context)
 
     fun canScheduleExact(): Boolean = ReminderPermissions.canScheduleExactAlarms(context)
 
@@ -66,17 +67,46 @@ class ReminderScheduler(
         if (ReminderPause.isPaused(repository.getSettings().pausedUntil, now().toEpochMilli())) return
         val at = now().toEpochMilli() + reminder.snooze.coerceIn(1, 1440) * 60_000L
         setAlarm(at, snoozePendingIntent(reminder.id, reminder.itemId))
+        snoozeStore.put(reminder.id, reminder.itemId, at)
+    }
+
+    /** 「稍后」触发或取消提醒时清除持久化记录 */
+    fun clearSnooze(reminderId: Long) {
+        snoozeStore.remove(reminderId)
     }
 
     /** 取消某提醒的系列闹钟与稍后闹钟 */
     fun cancel(reminderId: Long) {
         alarmManager.cancel(firePendingIntent(reminderId, itemId = 0L))
         alarmManager.cancel(snoozePendingIntent(reminderId, itemId = 0L))
+        snoozeStore.remove(reminderId)
     }
 
     /** 重排全部启用提醒（启动/重启/时间变更后） */
     suspend fun rescheduleAll() {
         repository.getEnabledReminders().forEach { scheduleNext(it) }
+        restoreSnoozes()
+    }
+
+    /** 重启后恢复未到期的「稍后」闹钟；提醒 / 选项无效、暂停中或已过期的记录直接清除 */
+    private suspend fun restoreSnoozes() {
+        val pending = snoozeStore.all()
+        if (pending.isEmpty()) return
+        val paused = ReminderPause.isPaused(repository.getSettings().pausedUntil, now().toEpochMilli())
+        val reminders = repository.getAllReminders().associateBy { it.id }
+        for ((reminderId, pair) in pending) {
+            val (itemId, triggerAt) = pair
+            val item = repository.getItem(itemId)
+            val valid = !paused &&
+                triggerAt > now().toEpochMilli() &&
+                reminders.containsKey(reminderId) &&
+                item != null && item.deletedAt == null && !item.archived && item.enabled
+            if (valid) {
+                setAlarm(triggerAt, snoozePendingIntent(reminderId, itemId))
+            } else {
+                snoozeStore.remove(reminderId)
+            }
+        }
     }
 
     /** 暂停：撤下全部提醒/稍后闹钟与已发通知，并安排到点自动恢复 */

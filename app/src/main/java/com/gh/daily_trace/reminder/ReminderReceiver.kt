@@ -25,7 +25,12 @@ class ReminderReceiver : BroadcastReceiver() {
             try {
                 val repository = app.container.repository
                 val itemId = intent.getLongExtra(EXTRA_ITEM_ID, -1L)
+                val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
                 val isSnooze = intent.getBooleanExtra(EXTRA_SNOOZE, false)
+                // 稍后闹钟已触发：立即清除持久化记录（无论后续校验是否通过）
+                if (isSnooze && reminderId > 0) {
+                    app.container.reminderScheduler.clearSnooze(reminderId)
+                }
                 val item = repository.getItem(itemId)
                 val reminder = repository.getReminderOf(itemId)
 

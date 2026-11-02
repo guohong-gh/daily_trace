@@ -1,7 +1,9 @@
 package com.gh.daily_trace
 
 import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -13,7 +15,9 @@ import com.gh.daily_trace.data.model.FrequencyType
 import com.gh.daily_trace.data.model.Reminder
 import com.gh.daily_trace.data.model.RepeatType
 import com.gh.daily_trace.data.repository.DailyTraceRepository
+import com.gh.daily_trace.reminder.ReminderReceiver
 import com.gh.daily_trace.reminder.ReminderScheduler
+import com.gh.daily_trace.reminder.SnoozeStore
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -54,6 +58,8 @@ class ReminderSchedulerTest {
             appSettingsDao = db.appSettingsDao(),
         )
         alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        // 清掉可能跨用例残留的「稍后」持久化记录，保证断言只看本用例写入
+        SnoozeStore(context).let { store -> store.all().keys.forEach(store::remove) }
     }
 
     @After
@@ -189,5 +195,65 @@ class ReminderSchedulerTest {
 
         val resumed = shadowOf(alarmManager).peekNextScheduledAlarm()!!
         assertEquals(Instant.parse("2026-10-17T00:00:00Z").toEpochMilli(), resumed.triggerAtTime)
+    }
+
+    @Test
+    fun `稍后提醒写入持久化记录且取消后清除`() = runBlocking {
+        val itemId = insertItem()
+        val reminderId = repo.saveReminder(Reminder(itemId = itemId, time = 8 * 60, snooze = 15))
+        val scheduler = scheduler()
+        val store = SnoozeStore(context)
+
+        scheduler.scheduleSnooze(repo.getReminderOf(itemId)!!)
+        assertEquals(mapOf(reminderId to (itemId to now.toEpochMilli() + 15 * 60_000L)), store.all())
+
+        scheduler.cancel(reminderId)
+        assertEquals(emptyMap<Long, Pair<Long, Long>>(), store.all())
+    }
+
+    @Test
+    fun `重启清空闹钟后未到期的稍后闹钟被恢复`() = runBlocking {
+        val itemId = insertItem()
+        val reminderId = repo.saveReminder(Reminder(itemId = itemId, time = 8 * 60, snooze = 15))
+        val scheduler = scheduler()
+        scheduler.scheduleSnooze(repo.getReminderOf(itemId)!!)
+        val expected = now.toEpochMilli() + 15 * 60_000L
+
+        // 模拟设备重启：一次性闹钟被系统清空（PendingIntent 相等性只看 action/class/requestCode）
+        alarmManager.cancel(
+            PendingIntent.getBroadcast(
+                context,
+                reminderId.toInt(),
+                Intent(context, ReminderReceiver::class.java).setAction(ReminderReceiver.ACTION_FIRE_SNOOZE),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        )
+        scheduler.rescheduleAll()
+
+        assertEquals(expected, shadowOf(alarmManager).peekNextScheduledAlarm()!!.triggerAtTime)
+    }
+
+    @Test
+    fun `过期的稍后记录在重排时被清除`() = runBlocking {
+        val itemId = insertItem()
+        val reminderId = repo.saveReminder(Reminder(itemId = itemId, time = 8 * 60, snooze = 15))
+        SnoozeStore(context).put(reminderId, itemId, now.toEpochMilli() - 1_000L)
+
+        scheduler().rescheduleAll()
+
+        assertEquals(emptyMap<Long, Pair<Long, Long>>(), SnoozeStore(context).all())
+    }
+
+    @Test
+    fun `暂停期间重排不恢复稍后闹钟`() = runBlocking {
+        val itemId = insertItem()
+        val reminderId = repo.saveReminder(Reminder(itemId = itemId, time = 8 * 60, snooze = 15))
+        SnoozeStore(context).put(reminderId, itemId, now.toEpochMilli() + 15 * 60_000L)
+        repo.saveSettings(repo.getSettings().copy(pausedUntil = now.toEpochMilli() + 3_600_000L))
+
+        scheduler().rescheduleAll()
+
+        assertNull(shadowOf(alarmManager).peekNextScheduledAlarm())
+        assertEquals(emptyMap<Long, Pair<Long, Long>>(), SnoozeStore(context).all())
     }
 }

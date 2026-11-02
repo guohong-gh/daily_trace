@@ -19,7 +19,16 @@ function Invoke-GradleStep {
     )
     Write-Host ""
     Write-Host "==> $Title" -ForegroundColor Cyan
-    & $gradlew @Arguments --console=plain
+    # PowerShell 5.1: gradle writes JVM/Robolectric warnings to stderr; when the caller
+    # captures output with 2>&1 they become ErrorRecords, and $ErrorActionPreference=Stop
+    # would abort this script before we can report the step result. Keep reporting in our hands.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $gradlew @Arguments --console=plain
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Host "FAILED: $Title (gradle exit code $LASTEXITCODE)" -ForegroundColor Red
         exit $LASTEXITCODE
