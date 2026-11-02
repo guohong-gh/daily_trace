@@ -22,6 +22,7 @@ import com.gh.daily_trace.domain.stats.StatsCalculator
 import com.gh.daily_trace.domain.stats.QUOTA_TYPES
 import com.gh.daily_trace.domain.stats.StreakResult
 import com.gh.daily_trace.domain.time.DayClock
+import com.gh.daily_trace.domain.time.watchLogicalDay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -150,6 +152,11 @@ class StatsViewModel(private val repository: DailyTraceRepository) : ViewModel()
     /** 回前台刷新（跨逻辑日边界） */
     fun refresh() {
         tick.value += 1
+    }
+
+    init {
+        // 长驻前台跨逻辑日边界时自动刷新（回前台刷新覆盖不到）
+        viewModelScope.launch { watchLogicalDay({ repository.getSettings() }) { refresh() } }
     }
 
     private fun compute(

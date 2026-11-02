@@ -19,6 +19,7 @@ import com.gh.daily_trace.domain.checkin.applyPlan
 import com.gh.daily_trace.domain.filter.FilterMatcher
 import com.gh.daily_trace.domain.time.DateDisplay
 import com.gh.daily_trace.domain.time.DayClock
+import com.gh.daily_trace.domain.time.watchLogicalDay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -143,6 +144,8 @@ class TodayViewModel(private val repository: DailyTraceRepository) : ViewModel()
 
     init {
         refreshToday()
+        // 长驻前台跨逻辑日边界时自动刷新（回前台刷新覆盖不到）
+        viewModelScope.launch { watchLogicalDay({ repository.getSettings() }) { refreshToday() } }
     }
 
     /** 回到前台/跨 4 点边界后刷新「今天」 */

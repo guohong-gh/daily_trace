@@ -18,6 +18,7 @@ import com.gh.daily_trace.domain.checkin.CheckInPlanner
 import com.gh.daily_trace.domain.checkin.applyPlan
 import com.gh.daily_trace.domain.time.DateDisplay
 import com.gh.daily_trace.domain.time.DayClock
+import com.gh.daily_trace.domain.time.watchLogicalDay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -92,6 +93,11 @@ class DateDetailViewModel(
     ) { records, note, items, settings, (todayDay, rules) ->
         buildState(records, note, items, settings, todayDay, rules)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DateDetailUiState(date = date))
+
+    init {
+        // 长驻前台跨逻辑日边界时自动刷新（回前台刷新覆盖不到）
+        viewModelScope.launch { watchLogicalDay({ repository.getSettings() }) { refreshToday() } }
+    }
 
     fun refreshToday() {
         viewModelScope.launch {

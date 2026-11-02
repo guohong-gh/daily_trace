@@ -20,6 +20,7 @@ import com.gh.daily_trace.domain.calendar.YearGrid
 import com.gh.daily_trace.domain.calendar.YearHeatmap
 import com.gh.daily_trace.domain.time.DateDisplay
 import com.gh.daily_trace.domain.time.DayClock
+import com.gh.daily_trace.domain.time.watchLogicalDay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -280,6 +281,8 @@ class CalendarViewModel(private val repository: DailyTraceRepository) : ViewMode
             yearAnchor.value = LocalDate.ofEpochDay(todayDay).year
             timelineOldest.value = timelineWindowStart(todayDay)
         }
+        // 长驻前台跨逻辑日边界时自动刷新（回前台刷新覆盖不到）
+        viewModelScope.launch { watchLogicalDay({ repository.getSettings() }) { refreshToday() } }
     }
 
     fun setViewMode(value: CalendarViewMode) {
