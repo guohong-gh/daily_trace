@@ -1,8 +1,31 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.androidx.room)
+}
+
+// 发布签名参数从仓库根的 keystore.properties 读取（该文件与 keystore 均被 .gitignore 忽略）
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+// 只有真正产出 release 的任务才要求正式签名；单测 / lint / debug 构建不依赖密钥
+val needsReleaseSigning = gradle.startParameter.taskNames.any {
+    it.contains("Release", ignoreCase = true) ||
+        it.equals("assemble", ignoreCase = true) ||
+        it.equals("build", ignoreCase = true) ||
+        it.equals("bundle", ignoreCase = true)
+}
+if (needsReleaseSigning && !keystorePropertiesFile.exists()) {
+    throw GradleException(
+        "缺少 keystore.properties：release 构建必须使用正式签名，禁止回退调试签名。" +
+            "生成与配置方式见 docs/发布流程.md 第五节。"
+    )
 }
 
 android {
@@ -21,10 +44,21 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // 本机 release 验收暂用调试签名；正式分发前必须替换为独立签名与妥善保管的密钥
-            signingConfig = signingConfigs.getByName("debug")
+            // 正式签名；缺少 keystore.properties 时 configuration 阶段已明确报错，不会回退 debug
+            signingConfig = signingConfigs.findByName("release")
             optimization {
                 enable = true
             }

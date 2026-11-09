@@ -42,7 +42,7 @@
 8. **统计口径**：`DAILY` / 无规则 = 每天；`DAYS_OF_WEEK` = 所选周几；`CUSTOM` = 锚点起每隔 N 天；`TIMES_PER_MONTH` / `TIMES_PER_WEEK` 是配额，无日级期望、不进完成率分母；今天未打卡有宽限；所有统计按 itemId 隔离。详见 D16、D43、D49。
 9. **提醒**：时刻按 `AppSettings.timezone` 解释；精确闹钟权限可用则准点，否则降级并提示；免打扰时段走低优先级“安静”渠道；暂停期间撤下全部提醒与汇总，到点自动恢复；通知动作打卡必须幂等。
 10. **备份 / CSV**：备份 JSON v1 为全表快照（含回收站），导入先校验、单事务全量替换；CSV 为 UTF-8 BOM + CRLF，一行一条记录，只用于分析、不承担恢复职责。任何格式变更必须同步 `docs/数据格式说明.md`、备份兼容测试与决策记录。
-11. **权限**：只允许 `POST_NOTIFICATIONS`、`SCHEDULE_EXACT_ALARM`、`RECEIVE_BOOT_COMPLETED`。新增任何权限、依赖或网络能力都必须先登记决策并说明必要性。
+11. **权限**：自声明只允许 `POST_NOTIFICATIONS`、`SCHEDULE_EXACT_ALARM`、`RECEIVE_BOOT_COMPLETED`；合并后的 Manifest 另有 WorkManager 传递的 `WAKE_LOCK`、`ACCESS_NETWORK_STATE`、`FOREGROUND_SERVICE` 与 AndroidX 自动生成的 `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`（口径见 D58）。任何情况下不得出现 `INTERNET`（CI 硬检查）；新增自声明权限、依赖或网络能力都必须先登记决策并说明必要性。
 12. **数据库迁移**：Room schema 已到 v6，升级必须写显式 `Migration` 并导出 schema，禁止 destructive fallback；迁移后必须用旧库覆盖安装验证数据完整。
 
 ## 四、固定批次工作流
@@ -82,7 +82,7 @@
 ## 七、AVD 走查约定
 
 - 默认 AVD：`Medium_Phone_API_37.0`（1080×2400）。启动后先确认 `adb devices`。
-- 本机 `adb` 不在 PATH，完整路径：`C:\Users\34355\AppData\Local\Android\Sdk\platform-tools\adb.exe`。
+- 本机 `adb` 不在 PATH，完整路径：`%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`。
 - 多设备时所有命令必须带 `-s emulator-5554`，避免装到其他模拟器。
 - 走查使用 release 包时先 `.\gradlew.bat assembleRelease`，再 `adb -s emulator-5554 install -r app\build\outputs\apk\release\app-release.apk`。
 - 截图统一放在 `docs/截图/`，命名为 `<批次>-<序号>-<主题>.png`；截图前后记录：
@@ -117,7 +117,7 @@
 .\gradlew.bat testDebugUnitTest          # JVM / Robolectric 单测
 .\gradlew.bat lintDebug                  # 静态检查
 .\gradlew.bat assembleDebug              # debug APK
-.\gradlew.bat assembleRelease            # release APK（R8，当前调试签名）
+.\gradlew.bat assembleRelease            # release APK（R8，正式签名，读 keystore.properties）
 .\gradlew.bat installDebug               # 安装 debug 到已连接设备
 .\scripts\verify.ps1                     # 单测 + lint + release 一键门禁
 ```

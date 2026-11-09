@@ -14,6 +14,16 @@
 # 本机配置（含 SDK 路径）
 local.properties
 
+# 发布签名：keystore 与口令只存本机，严禁入库
+keystore.properties
+keystore/
+
+# 本地工具 / 内部目录：不属于公开仓库内容
+.trae/
+.trae-html-share-packages/
+github-agent-skills-survey/
+.screenshots/
+
 # 系统
 .DS_Store
 Thumbs.db

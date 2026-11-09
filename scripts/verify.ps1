@@ -97,11 +97,40 @@ if (-not (Test-Path -LiteralPath $apk)) {
 $apkBytes = (Get-Item -LiteralPath $apk).Length
 $apkMb = [math]::Round($apkBytes / 1MB, 2)
 
+# --- APK revision must match HEAD -----------------------------------------
+# Gradle 可能整轮 UP-TO-DATE，直接解析旧产物会让门禁误报绿。
+# 这里校验 APK 内嵌的 version-control-info 是否由当前 HEAD 构建；
+# 代价远低于 --rerun-tasks，但无法识别「已提交」之外的本地未提交改动。
+# 用 Windows 自带 tar 读取 APK 内的 textproto，避免依赖 .NET 压缩类型在 PS5.1 下的加载差异。
+$apkRevision = $null
+$vcText = (& "$env:SystemRoot\System32\tar.exe" -xOf $apk "META-INF/version-control-info.textproto" 2>$null) -join "`n"
+if ($vcText) {
+    $revisionMatch = [regex]::Match($vcText, 'revision:\s*"([0-9a-f]{40})"')
+    if ($revisionMatch.Success) { $apkRevision = $revisionMatch.Groups[1].Value }
+}
+
+$headRevision = (& git -C $root rev-parse HEAD 2>$null)
+if ($LASTEXITCODE -ne 0 -or -not $headRevision) {
+    Write-Host "FAILED: could not read HEAD revision from git" -ForegroundColor Red
+    exit 1
+}
+$headRevision = $headRevision.Trim()
+
+if (-not $apkRevision) {
+    Write-Host "FAILED: APK has no embedded revision (META-INF/version-control-info.textproto)" -ForegroundColor Red
+    exit 1
+}
+if ($apkRevision -ne $headRevision) {
+    Write-Host ("FAILED: APK was built from {0}, current HEAD is {1}" -f $apkRevision, $headRevision) -ForegroundColor Red
+    exit 1
+}
+
 Write-Host ""
 Write-Host "================ VERIFY SUMMARY ================" -ForegroundColor Cyan
 Write-Host ("Tests   : {0} total, {1} passed, {2} failed, {3} errors, {4} skipped" -f $total, $passed, $failures, $errors, $skipped)
 Write-Host ("Lint    : {0} errors, {1} warnings" -f $lintErrors, $lintWarnings)
 Write-Host ("Release : {0} bytes ({1} MB)" -f $apkBytes, $apkMb)
+Write-Host ("Revision: {0} (matches HEAD)" -f $apkRevision)
 Write-Host ("APK     : {0}" -f $apk)
 Write-Host "================================================" -ForegroundColor Cyan
 

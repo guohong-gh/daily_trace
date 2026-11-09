@@ -1,6 +1,34 @@
 # 日迹（Daily_Trace）
 
-Android 本地打卡 / 每日追踪应用。纯本地数据（Room），无网络权限。
+**本地优先的 Android 打卡 / 每日追踪应用**：数据只存本机 Room 数据库，不联网、无账号、无统计上报。中文界面，开源发布。
+
+协议 [Apache-2.0](LICENSE)｜English: [README.en.md](README.en.md)
+
+## 核心卖点
+
+| 卖点 | 具体表现 |
+|------|----------|
+| **本地优先** | 数据库、备份、崩溃日志均在应用私有目录；无账号、无云同步、无广告或分析 SDK |
+| **无网络权限** | Manifest 不申请 `INTERNET`；GitHub Actions 对合并后的 Manifest 做硬检查，一旦出现 `INTERNET` 即构建失败 |
+| **历史快照不变** | 展示历史记录只用打卡时的名称 / 颜色 / 图标快照；改名、改色、软删除、归档都不会改写过去 |
+
+## 安装
+
+> 尚未分发正式签名包。首个公开版本发布后，将在此补充 GitHub Releases / Gitee 附件下载与安装说明。
+> 要求 Android 7.0+（`minSdk 24`）；首次安装需在系统中允许「安装未知来源应用」。
+
+## 截图
+
+| 今日页 | 日历 | 统计 |
+|--------|------|------|
+| ![今日页](docs/截图/m12-01-home.png) | ![日历](docs/截图/02-calendar.png) | ![统计](docs/截图/07-stats-week.png) |
+
+截图规范：
+
+- 一律来自真实构建（release 包 + AVD `Medium_Phone_API_37.0`，1080×2400），不得合成或伪造界面。
+- 文件名 `<批次>-<序号>-<主题>.png`，存放 `docs/截图/`；历史验收截图只读引用，不覆盖、不删除。
+- 截图前清理个人数据与测试选项；不得出现真实用户备份、口令、证书或密钥信息。
+- 新增截图需在 `docs/项目状态与计划.md` 的批次记录中登记操作步骤与实际结果。
 
 ## 技术栈
 
@@ -16,7 +44,7 @@ Android 本地打卡 / 每日追踪应用。纯本地数据（Room），无网�
 .\gradlew.bat testDebugUnitTest   # 单元测试（改代码后必跑）
 .\gradlew.bat assembleDebug       # 打 debug APK
 .\gradlew.bat installDebug        # 安装到已连接设备/模拟器
-.\gradlew.bat assembleRelease     # 打 release APK（R8 开启；当前用调试签名）
+.\gradlew.bat assembleRelease     # 打 release APK（R8 开启；签名参数来自本机 keystore.properties）
 .\gradlew.bat lintDebug           # 静态检查（发布前必跑，错误必须清零）
 ```
 
@@ -72,8 +100,13 @@ app/src/test/                单元测试（Robolectric 内存库 + 纯逻辑单
 - 用户操作：`docs/使用手册.md`；常见问题：`docs/常见问题.md`；权限与数据风险：`docs/隐私与数据安全.md`。
 - 工程说明：`docs/架构说明.md`、`docs/测试指南.md`、`docs/发布流程.md`、`docs/数据格式说明.md`。
 - 状态与验收：`docs/项目状态与计划.md`、`docs/需求差距与验收矩阵.md`；D50 起的新决策写入 `docs/决策记录.md`。
-- 一键质量门禁：`.\scripts\verify.ps1`，依次执行单测 → lint → release，并输出测试数、lint 错误 / 警告与 APK 大小；失败时非 0 退出。
+- 一键质量门禁：`.\scripts\verify.ps1`，依次执行单测 → lint → release，并输出测试数、lint 错误 / 警告、APK 大小与内嵌 revision（必须等于当前 HEAD）；失败时非 0 退出。
+- CI：`.github/workflows/quality-gate.yml` 在 push / PR 上跑单测 + lint + release，并用 `aapt2 dump permissions` 硬性拦截 `INTERNET` 权限。
 - 固定批次流程：单测 → lint → release 构建 → 模拟器走查截图 → 文档同步 → 单批提交并推送 `origin main`。
+
+## 协议
+
+本项目以 [Apache License 2.0](LICENSE) 开源发布：可商用、可修改、可再分发，需保留版权与许可声明，并按第 4 条标注修改；协议同时包含专利授权与免责条款。第三方依赖仍遵循各自协议（AndroidX / Compose / Room / WorkManager 等均为 Apache-2.0）。
 
 ## 当前状态与计划
 

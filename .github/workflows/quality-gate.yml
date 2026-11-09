@@ -1,0 +1,76 @@
+name: Quality Gate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: quality-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: sdkmanager --install "platforms;android-37" "build-tools;36.0.0" "platform-tools"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # CI 不持有正式私钥：每次生成一次性 keystore，仅验证 release 可签名构建，产物不可分发。
+      - name: Prepare CI-only signing keystore
+        run: |
+          set -euo pipefail
+          STORE_PASS="$(openssl rand -hex 16)"
+          keytool -genkeypair -keystore "$RUNNER_TEMP/ci-release.jks" -storetype PKCS12 \
+            -alias ci -keyalg RSA -keysize 2048 -validity 1 \
+            -dname "CN=CI Build Only" -storepass "$STORE_PASS" -keypass "$STORE_PASS"
+          {
+            echo "storeFile=$RUNNER_TEMP/ci-release.jks"
+            echo "storePassword=$STORE_PASS"
+            echo "keyAlias=ci"
+            echo "keyPassword=$STORE_PASS"
+          } > keystore.properties
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --console=plain
+
+      - name: Lint
+        run: ./gradlew lintDebug --console=plain
+
+      - name: Release build (R8)
+        run: ./gradlew assembleRelease --console=plain
+
+      # 本地优先承诺的可执行证据：合并后的 Manifest 只要出现 INTERNET 就失败。
+      - name: Reject INTERNET permission
+        run: |
+          set -euo pipefail
+          AAPT2="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | head -n1)"
+          "$AAPT2" dump permissions app/build/outputs/apk/release/app-release.apk | tee permissions.txt
+          if grep -q "android.permission.INTERNET" permissions.txt; then
+            echo "::error::合并后的 Manifest 含 INTERNET 权限，违反「本地优先、不联网」承诺"
+            exit 1
+          fi
+          echo "OK: merged manifest has no INTERNET permission"
