@@ -29,9 +29,18 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # v3 默认安装 "tools platform-tools"；tools 包已被 Google 仓库移除，
+          # 保持默认会直接报 "Failed to find package 'tools'" 而中断 setup。
+          # 只保留仍有效的 platform-tools，其余组件在下一步显式安装。
+          packages: "platform-tools"
 
-      - name: Install SDK packages
-        run: sdkmanager --install "platforms;android-37" "build-tools;36.0.0" "platform-tools"
+      - name: Install SDK components
+        run: |
+          set -euo pipefail
+          # 包路径以 SDK 实际登记为准：compileSdk 37 对应 platforms;android-37.0
+          # （Android 17 / API 37.0），不是 platforms;android-37。
+          sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
