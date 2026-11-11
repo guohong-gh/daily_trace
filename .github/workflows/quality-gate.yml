@@ -83,3 +83,11 @@ jobs:
             exit 1
           fi
           echo "OK: merged manifest has no INTERNET permission"
+
+      # 产物仅供 CI 内验证与人工下载核对，使用一次性 CI 签名，不能作为对外发布包。
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-trace-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error

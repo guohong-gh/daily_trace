@@ -6,7 +6,7 @@
 
 - Android 本地优先的打卡 / 每日追踪应用，包名 `com.gh.daily_trace`，界面中文。
 - 数据只存本机 Room 数据库；应用不申请网络权限，不做账号、云同步、统计上报。
-- 当前版本：`versionName 1.0.0`、`versionCode 1`；数据库版本 6。
+- 当前版本：`versionName 1.0.0`、`versionCode 10000`；数据库版本 6。
 - 最低 Android 7.0（minSdk 24），target / compileSdk 37。
 
 ## 二、文档地图
