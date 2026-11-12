@@ -1,6 +1,6 @@
 # Daily_Trace (日迹)
 
-**A local-first Android habit tracker.** Everything stays in an on-device Room database: no account, no cloud sync, no analytics. Chinese UI. Open source under the [Apache License 2.0](LICENSE).
+**A local-first Android habit tracker.** Everything stays in an on-device Room database: no account, no cloud sync, no analytics. The only outbound request is a version check against GitHub on launch; no local data is ever uploaded. Chinese UI. Open source under the [Apache License 2.0](LICENSE).
 
 [中文说明](README.md)｜[Apache-2.0](LICENSE)
 
@@ -9,7 +9,7 @@
 | What | How it works |
 |------|--------------|
 | **Local-first** | Database, backups and crash logs live in the app's private storage. No account, no sync, no ads or analytics SDKs. |
-| **No network permission** | The merged manifest never declares `INTERNET`. CI fails the build if `INTERNET` appears, so the promise is enforced by a check, not by convention. |
+| **Controlled network scope** | `INTERNET` is requested only to read the latest release tag from GitHub. No device identifiers, no local data uploaded, no ads or analytics SDKs. CI scans the sources and fails if any host other than `api.github.com` / `github.com` appears (text scan, not a hard guarantee). |
 | **Immutable history** | Every check-in stores a snapshot of the item's name, color and icon. Renaming, recoloring, archiving or soft-deleting an item never rewrites past records. |
 
 ## Screenshots
@@ -52,12 +52,12 @@ Screenshot rules: real builds only (release APK on AVD `Medium_Phone_API_37.0`, 
 ```
 
 - Release signing reads `keystore.properties` from the repository root (ignored by git). Without it, every release task fails with an explicit error; there is no fallback to the debug key. See `docs/发布流程.md`.
-- CI (`.github/workflows/quality-gate.yml`) runs unit tests, lint and the release build on pushes and pull requests, then rejects any merged manifest containing `INTERNET`.
+- CI (`.github/workflows/quality-gate.yml`) runs unit tests, lint and the release build on pushes and pull requests, then checks that the merged manifest declares `INTERNET` and that every host found in `app/src/main/java` is allow-listed (`api.github.com`, `github.com`).
 
 ## Data and privacy
 
 - All data stays in the app's private directory; backup files are created only when you export them.
-- Permissions declared by the app: `POST_NOTIFICATIONS`, `SCHEDULE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED`. WorkManager transitively adds `WAKE_LOCK`, `ACCESS_NETWORK_STATE` and `FOREGROUND_SERVICE`; AndroidX also generates one private permission. `INTERNET` is never requested, so the app cannot make network requests.
+- Permissions declared by the app: `POST_NOTIFICATIONS`, `SCHEDULE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED`, `INTERNET`. WorkManager transitively adds `WAKE_LOCK`, `ACCESS_NETWORK_STATE` and `FOREGROUND_SERVICE`; AndroidX also generates one private permission. `INTERNET` is used only to fetch `https://api.github.com/repos/guohong-gh/daily_trace/releases/latest` on launch and from Settings; the request carries no device identifier and uploads nothing.
 - No data leaves the device unless you export a backup or CSV yourself.
 
 ## Documentation

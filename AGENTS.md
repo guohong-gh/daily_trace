@@ -5,7 +5,7 @@
 ## 一、项目定位
 
 - Android 本地优先的打卡 / 每日追踪应用，包名 `com.gh.daily_trace`，界面中文。
-- 数据只存本机 Room 数据库；应用不申请网络权限，不做账号、云同步、统计上报。
+- 数据只存本机 Room 数据库；仅申请 `INTERNET` 用于向 GitHub 查询最新版本号，不上传任何本地数据，不做账号、云同步、统计上报。
 - 当前版本：`versionName 1.0.0`、`versionCode 10000`；数据库版本 6。
 - 最低 Android 7.0（minSdk 24），target / compileSdk 37。
 
@@ -42,7 +42,7 @@
 8. **统计口径**：`DAILY` / 无规则 = 每天；`DAYS_OF_WEEK` = 所选周几；`CUSTOM` = 锚点起每隔 N 天；`TIMES_PER_MONTH` / `TIMES_PER_WEEK` 是配额，无日级期望、不进完成率分母；今天未打卡有宽限；所有统计按 itemId 隔离。详见 D16、D43、D49。
 9. **提醒**：时刻按 `AppSettings.timezone` 解释；精确闹钟权限可用则准点，否则降级并提示；免打扰时段走低优先级“安静”渠道；暂停期间撤下全部提醒与汇总，到点自动恢复；通知动作打卡必须幂等。
 10. **备份 / CSV**：备份 JSON v1 为全表快照（含回收站），导入先校验、单事务全量替换；CSV 为 UTF-8 BOM + CRLF，一行一条记录，只用于分析、不承担恢复职责。任何格式变更必须同步 `docs/数据格式说明.md`、备份兼容测试与决策记录。
-11. **权限**：自声明只允许 `POST_NOTIFICATIONS`、`SCHEDULE_EXACT_ALARM`、`RECEIVE_BOOT_COMPLETED`；合并后的 Manifest 另有 WorkManager 传递的 `WAKE_LOCK`、`ACCESS_NETWORK_STATE`、`FOREGROUND_SERVICE` 与 AndroidX 自动生成的 `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`（口径见 D58）。任何情况下不得出现 `INTERNET`（CI 硬检查）；新增自声明权限、依赖或网络能力都必须先登记决策并说明必要性。
+11. **权限**：自声明只允许 `POST_NOTIFICATIONS`、`SCHEDULE_EXACT_ALARM`、`RECEIVE_BOOT_COMPLETED`、`INTERNET`；合并后的 Manifest 另有 WorkManager 传递的 `WAKE_LOCK`、`ACCESS_NETWORK_STATE`、`FOREGROUND_SERVICE` 与 AndroidX 自动生成的 `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`（口径见 D58）。`INTERNET` 只允许访问 `api.github.com` 与 `github.com`（更新检查，见 D59）：CI 校验源码中的 http(s) 主机必须落在白名单内，越界即失败；该检查是文本扫描，不是「绝不联网」的强保证。新增自声明权限、依赖或网络能力都必须先登记决策并说明必要性。
 12. **数据库迁移**：Room schema 已到 v6，升级必须写显式 `Migration` 并导出 schema，禁止 destructive fallback；迁移后必须用旧库覆盖安装验证数据完整。
 
 ## 四、固定批次工作流

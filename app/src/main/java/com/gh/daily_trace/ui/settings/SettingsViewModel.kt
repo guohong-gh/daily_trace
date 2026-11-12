@@ -15,6 +15,8 @@ import com.gh.daily_trace.domain.csv.CsvExporter
 import com.gh.daily_trace.domain.reminder.ReminderPause
 import com.gh.daily_trace.reminder.DailySummaryScheduler
 import com.gh.daily_trace.reminder.ReminderScheduler
+import com.gh.daily_trace.update.UpdateManager
+import com.gh.daily_trace.update.UpdateStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +41,7 @@ class SettingsViewModel(
     private val crashLogs: CrashLogManager,
     private val reminderScheduler: ReminderScheduler,
     private val dailySummaryScheduler: DailySummaryScheduler,
+    private val updateManager: UpdateManager,
 ) : ViewModel() {
 
     private val _settings = MutableStateFlow(AppSettings())
@@ -59,6 +62,16 @@ class SettingsViewModel(
     /** 一次性提示（Snackbar）；展示后调用 [consumeMessage] */
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
+
+    /** 版本检查状态（冷启动与手动检查共用同一状态） */
+    val updateStatus: StateFlow<UpdateStatus> = updateManager.status
+    val lastUpdateCheckAt: StateFlow<Long?> = updateManager.lastCheckAt
+    val currentVersion: String = updateManager.currentVersion
+
+    /** 设置页手动检查：不受自动弹窗节流限制 */
+    fun checkUpdates() {
+        viewModelScope.launch { updateManager.checkManually() }
+    }
 
     init {
         viewModelScope.launch {

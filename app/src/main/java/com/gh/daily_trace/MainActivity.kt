@@ -14,6 +14,7 @@ import com.gh.daily_trace.data.model.AppSettings
 import com.gh.daily_trace.data.model.ThemeMode
 import com.gh.daily_trace.ui.navigation.AppNavHost
 import com.gh.daily_trace.ui.theme.Daily_TraceTheme
+import com.gh.daily_trace.ui.update.UpdateDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -43,6 +44,16 @@ class MainActivity : ComponentActivity() {
                 dynamicColor = settings.dynamicColor,
             ) {
                 AppNavHost(container = container)
+
+                // 冷启动发现新版本时的非强制提示；数据与页面不阻塞
+                val pendingVersion by container.updateManager.pendingVersion.collectAsState()
+                pendingVersion?.let { version ->
+                    UpdateDialog(
+                        version = version,
+                        currentVersion = container.updateManager.currentVersion,
+                        onDismiss = { container.updateManager.dismiss() },
+                    )
+                }
             }
         }
     }

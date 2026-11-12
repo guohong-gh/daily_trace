@@ -38,6 +38,10 @@ class DailyTraceApp : Application() {
         appScope.launch {
             runCatching { container.autoBackup.runIfDue() }
         }
+        // 冷启动静默检查新版本：不阻塞首屏，失败不打扰；同一版本只自动提示一次
+        appScope.launch {
+            runCatching { container.updateManager.checkOnStartup() }
+        }
         // 应用内数据变化时刷新桌面组件（进程不在时由系统 30 分钟周期兜底）
         appScope.launch {
             combine(

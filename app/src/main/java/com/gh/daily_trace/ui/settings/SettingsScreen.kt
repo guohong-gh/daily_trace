@@ -64,6 +64,8 @@ import com.gh.daily_trace.domain.time.DateDisplay
 import com.gh.daily_trace.domain.time.DayClock
 import com.gh.daily_trace.ui.common.SectionCard
 import com.gh.daily_trace.ui.common.SwitchRow
+import com.gh.daily_trace.ui.update.openReleasesPage
+import com.gh.daily_trace.update.UpdateStatus
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -87,6 +89,7 @@ fun SettingsRoute(container: Container, onBack: () -> Unit) {
                     crashLogs = container.crashLogs,
                     reminderScheduler = container.reminderScheduler,
                     dailySummaryScheduler = container.dailySummaryScheduler,
+                    updateManager = container.updateManager,
                 )
             }
         }
@@ -101,6 +104,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val crashInfo by viewModel.crashInfo.collectAsState()
     val dataHealth by viewModel.dataHealth.collectAsState()
     val checkingData by viewModel.checkingData.collectAsState()
+    val updateStatus by viewModel.updateStatus.collectAsState()
+    val lastUpdateCheckAt by viewModel.lastUpdateCheckAt.collectAsState()
     val message by viewModel.message.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -162,13 +167,6 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
         ActivityResultContracts.CreateDocument("text/plain")
     ) { uri ->
         if (uri != null) viewModel.exportCrashLogsTo(uri, context.contentResolver)
-    }
-
-    val versionName = remember {
-        @Suppress("DEPRECATION")
-        runCatching {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName
-        }.getOrNull() ?: "-"
     }
 
     Scaffold(
@@ -483,8 +481,51 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 )
             }
 
+            SectionCard(title = "版本") {
+                InfoRow("当前版本", viewModel.currentVersion)
+                InfoRow("最近检查", formatBackupTime(lastUpdateCheckAt))
+                when (val status = updateStatus) {
+                    UpdateStatus.Checking -> Text(
+                        "检查中…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    UpdateStatus.UpToDate -> Text(
+                        "已是最新版本",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    UpdateStatus.Failed -> Text(
+                        "检查失败，请稍后重试",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    is UpdateStatus.NewVersion -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            "发现新版本 ${status.tag}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { openReleasesPage(context) }) { Text("去更新") }
+                    }
+                    UpdateStatus.Idle -> Unit
+                }
+                OutlinedButton(
+                    onClick = { viewModel.checkUpdates() },
+                    enabled = updateStatus != UpdateStatus.Checking,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("检查更新") }
+                Text(
+                    "仅向 GitHub 查询最新版本号，不上传任何本地数据；新版本需跳转浏览器下载安装。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             SectionCard(title = "关于") {
-                InfoRow("版本", versionName)
                 InfoRow("时区", "${settings.timezone}（暂不支持修改）")
                 Text(
                     "所有数据仅保存在本机。建议定期导出备份文件，用于迁移或防止误删。",

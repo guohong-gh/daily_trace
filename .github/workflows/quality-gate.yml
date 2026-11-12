@@ -72,17 +72,38 @@ jobs:
       - name: Release build (R8)
         run: ./gradlew assembleRelease --console=plain
 
-      # 本地优先承诺的可执行证据：合并后的 Manifest 只要出现 INTERNET 就失败。
-      - name: Reject INTERNET permission
+      # 联网范围的可执行证据（见 D59）：允许 INTERNET，但源码主机必须落在白名单内。
+      # 能力边界：这是对 app/src/main/java 的文本扫描，能拦住直接写死的域名，
+      # 拦不住运行时拼接的域名、重定向后的主机、原生库内部的请求；
+      # 它是低成本的回归门禁，不是「绝不联网」的强保证。
+      - name: Check network scope
         run: |
           set -euo pipefail
           AAPT2="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | head -n1)"
           "$AAPT2" dump permissions app/build/outputs/apk/release/app-release.apk | tee permissions.txt
-          if grep -q "android.permission.INTERNET" permissions.txt; then
-            echo "::error::合并后的 Manifest 含 INTERNET 权限，违反「本地优先、不联网」承诺"
+          if ! grep -q "android.permission.INTERNET" permissions.txt; then
+            echo "::error::缺少 INTERNET 权限：更新检查将无法访问 GitHub Releases"
             exit 1
           fi
-          echo "OK: merged manifest has no INTERNET permission"
+          echo "OK: merged manifest declares INTERNET"
+
+          hosts="$(grep -rhoE 'https?://[A-Za-z0-9._-]+' app/src/main/java \
+            | sed -E 's#^https?://##' | tr '[:upper:]' '[:lower:]' | sort -u)"
+          echo "hosts found in app/src/main/java:"
+          echo "$hosts"
+          allowed="api.github.com github.com"
+          failed=0
+          while IFS= read -r host; do
+            [ -z "$host" ] && continue
+            if ! echo "$allowed" | tr ' ' '\n' | grep -qx "$host"; then
+              echo "::error::源码中出现白名单外的主机：$host（仅允许 $allowed）"
+              failed=1
+            fi
+          done <<< "$hosts"
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+          echo "OK: all source hosts are allow-listed"
 
       # 产物仅供 CI 内验证与人工下载核对，使用一次性 CI 签名，不能作为对外发布包。
       - name: Upload release APK

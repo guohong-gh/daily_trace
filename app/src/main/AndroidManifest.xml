@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 仅用于向 GitHub Releases 查询最新版本号，不上传任何本地数据 -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:name=".DailyTraceApp"
